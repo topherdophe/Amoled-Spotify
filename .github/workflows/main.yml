@@ -31,9 +31,23 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
+      - name: Prepare signing key
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/neon-release.p12"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/neon-release.p12" >> "$GITHUB_ENV"
+            echo "Signing with the permanent key"
+          else
+            echo "::warning::Signing secrets not set: this APK uses a throwaway key and won't install over a previous build."
+          fi
+
       - name: Build APK
         env:
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         run: |
           if [ -z "$SPOTIFY_CLIENT_ID" ]; then
             echo "::notice::SPOTIFY_CLIENT_ID repository variable is not set. The app will ask for the Client ID on first launch."
@@ -46,6 +60,7 @@ jobs:
             exit 1
           fi
           tail -5 build.log
+          rm -f "$RUNNER_TEMP/neon-release.p12"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

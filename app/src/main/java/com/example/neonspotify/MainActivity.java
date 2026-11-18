@@ -8,9 +8,14 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.BatteryManager;
@@ -19,17 +24,23 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.Editable;
+import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.format.DateFormat;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -39,45 +50,82 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/** AMOLED black / neon green Spotify remote. Single activity, framework views only. */
+/** AMOLED-black Spotify remote. Single activity, framework views only. */
 public class MainActivity extends Activity implements SpotifyClient.Listener {
-    private static final int GREEN = 0xFF00FF00, TRACK = 0xFF1F4D1F, HINT = 0xFF4D804D, BLACK = Color.BLACK;
-    private static final long POLL_PLAYING_MS = 5_000, POLL_IDLE_MS = 15_000, POLL_LIMITED_MS = 20_000;
-    private static final long IDLE_DIM_MS = 90_000, SHIFT_MS = 30_000;
-    private static final int PAGE = 10; // Spotify's Development Mode search limit since Feb 2026
+    private static final int BLACK = Color.BLACK;
     private static final float OFF = .35f;
+    private static final long SHIFT_MS = 30_000;
+    private static final int PAGE = 10; // Spotify's Development Mode search limit since Feb 2026
 
-    private enum Screen { PLAYER, SEARCH, PLAYLISTS, DEVICES, INFO, SETUP }
+    // Highlight colours: solid colours first, then gradients (start, end).
+    private static final String[] COLOR_NAMES = {"Neon", "Cyan", "Magenta", "Amber", "Red", "Violet", "White",
+            "Aurora", "Vapor", "Sunset", "Ocean"};
+    private static final int[][] COLORS = {
+            {0xFF00FF00, 0xFF00FF00}, {0xFF00E5FF, 0xFF00E5FF}, {0xFFFF00FF, 0xFFFF00FF}, {0xFFFFB000, 0xFFFFB000},
+            {0xFFFF1744, 0xFFFF1744}, {0xFFB388FF, 0xFFB388FF}, {0xFFFFFFFF, 0xFFFFFFFF},
+            {0xFF00FF00, 0xFF00E5FF}, {0xFFFF00FF, 0xFF00E5FF}, {0xFFFFB000, 0xFFFF1744}, {0xFF2979FF, 0xFF00E5FF}};
+    private static final String[] IDLE_MODES = {"Nothing", "Dim", "Clock & song", "Clock & song + dim"};
+    private static final int[] IDLE_SECONDS = {30, 60, 120, 300};
+    private static final String[] IDLE_LABELS = {"30 sec", "1 min", "2 min", "5 min"};
+    private static final int[] SLEEP_MINUTES = {0, 15, 30, 45, 60, 90, -1}; // -1 = after the current song
+    private static final String[] SLEEP_LABELS = {"Off", "15 min", "30 min", "45 min", "60 min", "90 min", "End of song"};
+
+    private enum Screen { PLAYER, QUEUE, SEARCH, PLAYLISTS, DEVICES, SETTINGS, SETUP }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService images = Executors.newSingleThreadExecutor();
     private SpotifyClient spotify;
     private SharedPreferences settings;
     private Screen screen = Screen.PLAYER;
 
     // Shell views
-    private LinearLayout shifter, content;
+    private LinearLayout shifter, content, topBar;
     private TextView battery, message;
     private boolean errorShown;
 
     // Player views (null unless the player screen is showing)
     private TextView clock, title, artist, device, elapsed, duration, play, shuffleBtn, repeatBtn;
     private SeekBar progressBar;
+    private ImageView art;
+    private View ctrlColumn;
     private boolean draggingProgress;
 
     // Playback state
     private boolean hasPlayback, isPlaying, shuffle, refreshing;
-    private String repeat = "off", trackName = "", artistName = "", deviceName = "";
+    private String repeat = "off", trackName = "", artistName = "", deviceName = "", trackUri = "";
     private long progressMs, durationMs, progressAt;
-    private String lastQuery = "";
+    private String endRefreshFor = "", lastQuery = "";
+    private String artUrl = "", pendingArtUrl = "";
+    private Bitmap artBitmap;
+    /** Songs swiped out of the queue. Spotify can't remove queue items, so these are skipped when they come up. */
+    private final Set<String> skipUris = new HashSet<>();
 
-    // OLED care
-    private boolean keepOn, nightMode, autoDim, dimmed, swallowing;
+    // Sleep timer
+    private int sleepChoice;
+    private long sleepAt;
+    private boolean sleepEndOfSong;
+    private String sleepSongUri = "";
+    private final Runnable sleepTimer = this::sleepNow;
+
+    // Settings
+    private int colorIndex, accent, accent2, idleMode, idleChoice, brightNormal, brightDim;
+    private boolean keepOn, showArt, pixelShift;
+
+    // Idle state
+    private boolean idling, minimal, swallowing;
     private long lastTouch = SystemClock.elapsedRealtime();
     private int ticks;
 
@@ -86,9 +134,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         settings = getSharedPreferences("settings", MODE_PRIVATE);
-        keepOn = settings.getBoolean("keepOn", true);
-        nightMode = settings.getBoolean("nightMode", false);
-        autoDim = settings.getBoolean("autoDim", true);
+        loadSettings();
         spotify = new SpotifyClient(this, getString(R.string.spotify_client_id), this);
 
         Window w = getWindow();
@@ -114,15 +160,16 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         super.onResume();
         hideSystemUi();
         lastTouch = SystemClock.elapsedRealtime();
-        setDimmed(nightMode);
+        exitIdle();
         handler.removeCallbacks(tick);
         handler.removeCallbacks(poll);
         handler.post(tick);
         handler.post(poll);
+        if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) sleepNow();
     }
 
     @Override protected void onPause() {
-        // Nothing runs in the background: no polling, no timers, while the screen is off or the app is hidden.
+        // No polling or timers while the screen is off or the app is hidden (the sleep timer keeps running).
         handler.removeCallbacks(tick);
         handler.removeCallbacks(poll);
         super.onPause();
@@ -131,6 +178,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         spotify.shutdown();
+        images.shutdownNow();
         super.onDestroy();
     }
 
@@ -139,10 +187,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         super.onConfigurationChanged(newConfig);
         applyShellPadding();
         if (screen == Screen.PLAYER) showPlayer();
-    }
-
-    private boolean isLandscape() {
-        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -158,8 +202,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     @Override public boolean dispatchTouchEvent(MotionEvent ev) {
         lastTouch = SystemClock.elapsedRealtime();
         int a = ev.getActionMasked();
-        // The first touch on an auto-dimmed screen only wakes it, so it can't trigger a button by accident.
-        if (a == MotionEvent.ACTION_DOWN && dimmed && !nightMode) { setDimmed(false); swallowing = true; }
+        // The first touch on an idle screen only wakes it, so it can't press a button by accident.
+        if (a == MotionEvent.ACTION_DOWN && idling) { exitIdle(); swallowing = true; }
         if (swallowing) {
             if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) swallowing = false;
             return true;
@@ -186,12 +230,24 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             updateClock();
             if (ticks++ % 30 == 0) updateBattery();
             updateProgressViews();
-            // Burn-in protection: drift the whole UI (including the top bar) a few dp every 30 s.
-            long step = System.currentTimeMillis() / SHIFT_MS;
-            shifter.setTranslationX(dpf((float) Math.sin(step * 0.7) * 6f));
-            shifter.setTranslationY(dpf((float) Math.cos(step * 1.3) * 6f));
-            if (autoDim && !nightMode && !dimmed && screen == Screen.PLAYER
-                    && SystemClock.elapsedRealtime() - lastTouch > IDLE_DIM_MS) setDimmed(true);
+            if (sleepAt > 0 || sleepEndOfSong) updateDeviceLine();
+            if (pixelShift) {
+                // Burn-in protection: drift the whole UI a few dp every 30 s.
+                long step = System.currentTimeMillis() / SHIFT_MS;
+                shifter.setTranslationX(dpf((float) Math.sin(step * 0.7) * 6f));
+                shifter.setTranslationY(dpf((float) Math.cos(step * 1.3) * 6f));
+            } else {
+                shifter.setTranslationX(0);
+                shifter.setTranslationY(0);
+            }
+            if (idleMode != 0 && !idling && screen == Screen.PLAYER
+                    && SystemClock.elapsedRealtime() - lastTouch > IDLE_SECONDS[idleChoice] * 1000L) enterIdle();
+            // Refresh right when a song should end: faster next-song display, queue auto-skip and sleep-after-song.
+            if (isPlaying && durationMs > 0 && !trackUri.isEmpty() && !trackUri.equals(endRefreshFor)
+                    && currentProgress() >= durationMs - 300) {
+                endRefreshFor = trackUri;
+                handler.postDelayed(MainActivity.this::refreshPlayback, 1200);
+            }
             handler.postDelayed(this, 1000);
         }
     };
@@ -199,12 +255,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             boolean limited = spotify.isRateLimited();
-            if (screen == Screen.PLAYER && spotify.isConnected() && !limited) refreshPlayback();
-            handler.postDelayed(this, limited ? POLL_LIMITED_MS : isPlaying ? POLL_PLAYING_MS : POLL_IDLE_MS);
+            if (spotify.isConnected() && !limited) refreshPlayback();
+            long delay = limited ? 20_000 : (screen == Screen.PLAYER && isPlaying) ? 5_000 : 15_000;
+            handler.postDelayed(this, delay);
         }
     };
 
-    // ================================================================ screens
+    // ================================================================ shell
 
     private void buildShell() {
         FrameLayout frame = new FrameLayout(this);
@@ -214,16 +271,17 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         applyShellPadding();
         frame.addView(shifter, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
+        topBar = new LinearLayout(this);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
         battery = text("--%", 16, false);
-        top.addView(battery);
-        top.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        top.addView(icon("◎", "Devices", () -> showDevices(null)));
-        top.addView(icon("⌕", "Search", this::showSearch));
-        top.addView(icon("☷", "Playlists", this::showPlaylists));
-        top.addView(icon("ⓘ", "Diagnostics", this::showInfo));
-        shifter.addView(top, new LinearLayout.LayoutParams(-1, dp(52)));
+        topBar.addView(battery);
+        topBar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        topBar.addView(icon("◎", "Devices", () -> showDevices(null)));
+        topBar.addView(icon("♫︎", "Up next", this::showQueue));
+        topBar.addView(icon("⌕", "Search", this::showSearch));
+        topBar.addView(icon("☷", "Playlists", this::showPlaylists));
+        topBar.addView(icon("⚙︎", "Settings", this::showSettings));
+        shifter.addView(topBar, new LinearLayout.LayoutParams(-1, dp(52)));
 
         content = vertical();
         shifter.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -236,6 +294,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     }
 
     private void applyShellPadding() {
+        if (shifter == null) return;
         // Landscape: extra side padding clears the camera cutout; less top padding saves height.
         if (isLandscape()) shifter.setPadding(dp(40), dp(8), dp(40), dp(4));
         else shifter.setPadding(dp(16), dp(28), dp(16), dp(12));
@@ -246,8 +305,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         content.removeAllViews();
         clock = title = artist = device = elapsed = duration = play = shuffleBtn = repeatBtn = null;
         progressBar = null;
+        art = null;
+        ctrlColumn = null;
         draggingProgress = false;
+        if (minimal) setMinimal(false);
     }
+
+    // ================================================================ player
 
     private void showPlayer() {
         clearContent(Screen.PLAYER);
@@ -264,6 +328,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         LinearLayout info = vertical(), ctrl = vertical();
         info.setGravity(Gravity.CENTER);
         ctrl.setGravity(Gravity.CENTER);
+        ctrlColumn = ctrl;
         if (landscape) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -277,9 +342,24 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             p.addView(ctrl, matchWrap());
         }
 
-        clock = text("--:--", landscape ? 72 : 64, false);
+        clock = text("--:--", clockSize(), false);
         clock.setTypeface(Typeface.create("sans-serif-thin", Typeface.NORMAL));
         info.addView(clock, matchWrap());
+
+        art = new ImageView(this);
+        art.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        GradientDrawable artBg = new GradientDrawable();
+        artBg.setCornerRadius(dp(12));
+        artBg.setColor(BLACK);
+        art.setBackground(artBg);
+        art.setClipToOutline(true);
+        int artSize = dp(landscape ? 130 : 220);
+        LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(artSize, artSize);
+        artLp.gravity = Gravity.CENTER_HORIZONTAL;
+        artLp.topMargin = dp(4);
+        artLp.bottomMargin = dp(12);
+        info.addView(art, artLp);
+
         title = oneLine(text("", 26, true));
         info.addView(title, matchWrap());
         artist = oneLine(text("", 19, false));
@@ -344,35 +424,239 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         controls.addView(repeatBtn);
         ctrl.addView(controls, matchWrap());
 
-        LinearLayout toggles = new LinearLayout(this);
-        toggles.setGravity(Gravity.CENTER);
-        toggles.setPadding(0, dp(12), 0, 0);
-        toggles.addView(toggle("SCREEN ON", keepOn, on -> { keepOn = on; saveSettings(); applyKeepOn(); }));
-        toggles.addView(toggle("AUTO-DIM", autoDim, on -> { autoDim = on; saveSettings(); }));
-        toggles.addView(toggle("NIGHT", nightMode, on -> { nightMode = on; saveSettings(); setDimmed(on); }));
-        ctrl.addView(toggles, matchWrap());
-
         if (!spotify.isConnected()) ctrl.addView(action("CONNECT TO SPOTIFY", 20, this::login));
 
         updateClock();
         updatePlayerViews();
+        if (idling && idleMode >= 2) setMinimal(true);
         refreshPlayback();
     }
+
+    private int clockSize() {
+        boolean landscape = isLandscape();
+        if (minimal) return landscape ? 110 : 96;
+        return landscape ? 72 : 64;
+    }
+
+    private void updatePlayerViews() {
+        if (screen != Screen.PLAYER || title == null) return;
+        if (!spotify.isConnected()) {
+            title.setText("Not connected");
+            artist.setText("");
+        } else if (!hasPlayback) {
+            title.setText("Nothing playing");
+            artist.setText("Tap ◎ to choose a device");
+        } else {
+            title.setText(trackName);
+            artist.setText(artistName);
+        }
+        updateDeviceLine();
+        play.setText(isPlaying ? "Ⅱ" : "▶");
+        shuffleBtn.setAlpha(shuffle ? 1f : OFF);
+        repeatBtn.setText("track".equals(repeat) ? "↻1" : "↻");
+        repeatBtn.setAlpha("off".equals(repeat) ? OFF : 1f);
+        progressBar.setMax((int) Math.max(durationMs, 1));
+        duration.setText(fmt(durationMs));
+        updateProgressViews();
+        updateArt();
+    }
+
+    private void updateDeviceLine() {
+        if (device == null) return;
+        String s = hasPlayback && !deviceName.isEmpty() ? "on " + deviceName : "";
+        if (sleepAt > 0) {
+            long mins = Math.max(1, (sleepAt - System.currentTimeMillis() + 59_999) / 60_000);
+            s += (s.isEmpty() ? "" : " · ") + "sleep in " + mins + " min";
+        } else if (sleepEndOfSong) {
+            s += (s.isEmpty() ? "" : " · ") + "sleep after this song";
+        }
+        if (!s.contentEquals(device.getText())) device.setText(s);
+    }
+
+    private long currentProgress() {
+        long p = progressMs;
+        if (isPlaying) p += SystemClock.elapsedRealtime() - progressAt;
+        return durationMs > 0 ? Math.min(p, durationMs) : p;
+    }
+
+    private void updateProgressViews() {
+        if (progressBar == null || draggingProgress) return;
+        long p = hasPlayback ? currentProgress() : 0;
+        progressBar.setProgress((int) p);
+        elapsed.setText(fmt(p));
+    }
+
+    private void updateArt() {
+        if (art == null) return;
+        boolean show = showArt && artBitmap != null && !minimal && hasPlayback;
+        art.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) art.setImageBitmap(artBitmap);
+    }
+
+    private void loadArt(String url) {
+        if (url.equals(artUrl)) { updateArt(); return; }
+        artUrl = url;
+        artBitmap = null;
+        updateArt();
+        if (!url.startsWith("https://")) return;
+        images.execute(() -> {
+            Bitmap b = null;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(10_000);
+                c.setReadTimeout(10_000);
+                try (InputStream in = c.getInputStream()) { b = BitmapFactory.decodeStream(in); }
+                finally { c.disconnect(); }
+            } catch (Exception ignored) { }
+            Bitmap result = b;
+            handler.post(() -> {
+                if (!url.equals(artUrl) || isDestroyed()) return;
+                artBitmap = result;
+                updateArt();
+            });
+        });
+    }
+
+    // ================================================================ queue
+
+    private void showQueue() {
+        clearContent(Screen.QUEUE);
+        heading("Up next");
+        TextView hint = text("Tap a song to skip to it · swipe it away to remove it", 13, false);
+        hint.setAlpha(.6f);
+        content.addView(hint, matchWrap());
+        LinearLayout list = scrollList();
+        content.addView(action("BACK", 17, this::showPlayer));
+        if (!requireConnected(list)) return;
+        TextView loading = text("Loading…", 15, false);
+        list.addView(loading);
+        spotify.request("GET", "/me/player/queue", null, (code, body) -> {
+            list.removeView(loading);
+            if (code != 200) { list.addView(text(spotify.explain(code, body), 15, false)); return; }
+            try {
+                JSONObject j = new JSONObject(body);
+                JSONObject now = j.optJSONObject("currently_playing");
+                if (now != null) {
+                    TextView n = text("Now playing: " + str(now, "name"), 15, false);
+                    n.setAlpha(.6f);
+                    n.setPadding(0, dp(4), 0, dp(8));
+                    list.addView(n, matchWrap());
+                }
+                JSONArray q = j.optJSONArray("queue");
+                int shown = 0;
+                if (q != null) {
+                    for (int i = 0; i < q.length(); i++) {
+                        JSONObject t = q.optJSONObject(i);
+                        if (t == null) continue;
+                        String uri = str(t, "uri");
+                        if (skipUris.contains(uri)) continue;
+                        int steps = i + 1;
+                        TextView item = action(str(t, "name") + "\n" + subtitle(t), 17, null);
+                        item.setOnTouchListener(new SwipeDismiss(() -> skipTo(steps), () -> {
+                            skipUris.add(uri);
+                            list.removeView(item);
+                            status("Removed. Spotify can't edit the queue, so the app skips it when it comes up.");
+                        }));
+                        list.addView(item, matchWrap());
+                        shown++;
+                    }
+                }
+                if (shown == 0) list.addView(text("Nothing queued", 15, false));
+            } catch (JSONException e) {
+                list.addView(text("Couldn't read the queue", 15, false));
+            }
+        });
+    }
+
+    private void skipTo(int steps) {
+        status(steps == 1 ? "Skipping…" : "Skipping " + steps + " songs…");
+        showPlayer();
+        skipNext(steps);
+    }
+
+    private void skipNext(int remaining) {
+        spotify.request("POST", "/me/player/next", null, (code, body) -> {
+            if (code < 200 || code >= 300) { error(spotify.explain(code, body)); return; }
+            if (remaining > 1) handler.postDelayed(() -> skipNext(remaining - 1), 250);
+            else { status(""); handler.postDelayed(this::refreshPlayback, 700); }
+        });
+    }
+
+    private void addToQueue(String uri, String name) {
+        spotify.request("POST", "/me/player/queue?uri=" + SpotifyClient.enc(uri), null, (code, body) -> {
+            if (code >= 200 && code < 300) { skipUris.remove(uri); status("Added to queue: " + name); }
+            else error(spotify.explain(code, body));
+        });
+    }
+
+    /** Horizontal swipe removes a row; a tap without movement runs onTap. Vertical drags go to the ScrollView. */
+    private final class SwipeDismiss implements View.OnTouchListener {
+        private final Runnable onTap, onDismiss;
+        private final int slop = ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();
+        private float downX, downY;
+        private boolean swiping;
+
+        SwipeDismiss(Runnable onTap, Runnable onDismiss) { this.onTap = onTap; this.onDismiss = onDismiss; }
+
+        @Override public boolean onTouch(View v, MotionEvent e) {
+            float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = e.getRawX();
+                    downY = e.getRawY();
+                    swiping = false;
+                    v.setPressed(true);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (!swiping && Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy)) {
+                        swiping = true;
+                        v.setPressed(false);
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                    if (swiping) {
+                        v.setTranslationX(dx);
+                        v.setAlpha(Math.max(.15f, 1f - Math.abs(dx) / Math.max(1, v.getWidth())));
+                    } else if (Math.abs(dy) > slop) {
+                        v.setPressed(false);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    v.setPressed(false);
+                    if (swiping) {
+                        if (Math.abs(dx) > v.getWidth() / 3f) {
+                            v.animate().translationX(Math.signum(dx) * v.getWidth()).alpha(0f).setDuration(180).withEndAction(onDismiss).start();
+                        } else {
+                            v.animate().translationX(0).alpha(1f).setDuration(180).start();
+                        }
+                    } else if (Math.abs(dx) < slop && Math.abs(dy) < slop) {
+                        v.performClick();
+                        onTap.run();
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    v.setPressed(false);
+                    v.animate().translationX(0).alpha(1f).setDuration(180).start();
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    // ================================================================ search & playlists
 
     private void showSearch() {
         clearContent(Screen.SEARCH);
         heading("Search");
-        EditText q = new EditText(this);
-        q.setSingleLine(true);
-        q.setTextColor(GREEN);
-        q.setHintTextColor(HINT);
-        q.setHint("Song, artist or album");
+        EditText q = input("Song, artist or album");
         q.setText(lastQuery);
         q.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        q.setBackgroundTintList(ColorStateList.valueOf(GREEN));
         content.addView(q, matchWrap());
         TextView go = action("SEARCH", 18, null);
         content.addView(go);
+        TextView hint = text("Tap to play · hold to add to queue", 13, false);
+        hint.setAlpha(.6f);
+        content.addView(hint, matchWrap());
         LinearLayout list = scrollList();
         content.addView(action("BACK", 17, this::showPlayer));
 
@@ -405,8 +689,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject t = items.optJSONObject(i);
                     if (t == null) continue;
-                    String uri = t.optString("uri");
-                    list.addView(action(t.optString("name") + "\n" + joinArtists(t), 17, () -> playTrack(uri)));
+                    String uri = str(t, "uri"), name = str(t, "name");
+                    TextView r = action(name + "\n" + joinArtists(t), 17, () -> playTrack(uri));
+                    r.setOnLongClickListener(v -> { addToQueue(uri, name); return true; });
+                    list.addView(r, matchWrap());
                 }
                 if (!tracks.isNull("next")) {
                     TextView more = action("MORE", 16, null);
@@ -440,10 +726,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject pl = items.optJSONObject(i);
                     if (pl == null) continue;
-                    String uri = pl.optString("uri");
+                    String uri = str(pl, "uri");
                     JSONObject owner = pl.optJSONObject("owner");
                     String by = owner == null ? "" : str(owner, "display_name");
-                    list.addView(action(str(pl, "name") + (by.isEmpty() ? "" : "\n" + by), 18, () -> playContext(uri)));
+                    list.addView(action(str(pl, "name") + (by.isEmpty() ? "" : "\n" + by), 18, () -> playContext(uri)), matchWrap());
                 }
                 String next = str(page, "next");
                 if (!next.isEmpty()) {
@@ -456,6 +742,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             }
         });
     }
+
+    // ================================================================ devices
 
     private void showDevices(String note) {
         clearContent(Screen.DEVICES);
@@ -484,33 +772,77 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
                     transfer(id, isPlaying, this::showPlayer);
                 });
                 if (restricted || id.isEmpty()) { item.setEnabled(false); item.setAlpha(.4f); }
-                list.addView(item);
+                list.addView(item, matchWrap());
             }
         });
     }
 
-    private void showInfo() {
-        clearContent(Screen.INFO);
-        heading("Diagnostics");
+    // ================================================================ settings
+
+    private interface Toggle { void set(boolean on); }
+    private interface IntChoice { void pick(int value); }
+    private interface Labeler { String label(int value); }
+
+    private void showSettings() {
+        clearContent(Screen.SETTINGS);
+        heading("Settings");
         LinearLayout list = scrollList();
-        list.addView(text("Session: " + (spotify.isConnected() ? "connected" : "disconnected"), 16, false));
-        list.addView(text("Client ID in this build: " + spotify.clientIdHint() + "\nRedirect URI: " + SpotifyClient.REDIRECT, 14, false));
-        TextView result = text("Last request:\n" + spotify.lastDiagnostic, 14, false);
-        result.setPadding(dp(8), dp(20), dp(8), dp(20));
-        list.addView(result);
-        list.addView(action("TEST ACCOUNT", 17, () -> spotify.request("GET", "/me", null, (code, body) -> {
-            if (code != 200) { result.setText("Account check failed\n" + spotify.explain(code, body)); return; }
-            try {
-                JSONObject j = new JSONObject(body);
-                String name = str(j, "display_name");
-                result.setText("Connected as: " + (name.isEmpty() ? str(j, "id") : name) + "\nAccount ID: " + str(j, "id"));
-            } catch (JSONException e) {
-                result.setText("Account response unreadable");
-            }
-        })));
-        list.addView(action("CHANGE CLIENT ID", 16, this::showSetup));
-        list.addView(action("DISCONNECT AND RECONNECT", 16, () -> { forgetSession(); login(); }));
-        list.addView(action("DISCONNECT", 16, () -> { forgetSession(); status("Disconnected"); showPlayer(); }));
+
+        section(list, "Sleep timer");
+        list.addView(choices(SLEEP_LABELS, sleepChoice, this::setSleep), matchWrap());
+
+        section(list, "Highlight colour");
+        HorizontalScrollView colors = choices(COLOR_NAMES, colorIndex, i -> {
+            colorIndex = i;
+            saveSettings();
+            applyColors();
+            buildShell();
+            showSettings();
+        });
+        LinearLayout chips = (LinearLayout) colors.getChildAt(0);
+        for (int i = 0; i < chips.getChildCount(); i++) tint((TextView) chips.getChildAt(i), COLORS[i][0], COLORS[i][1]);
+        list.addView(colors, matchWrap());
+        list.addView(switchRow("Show album art", showArt, on -> {
+            showArt = on;
+            saveSettings();
+            if (on && !pendingArtUrl.isEmpty()) loadArt(pendingArtUrl);
+        }), matchWrap());
+
+        section(list, "Screen");
+        list.addView(switchRow("Keep screen awake", keepOn, on -> { keepOn = on; saveSettings(); applyKeepOn(); }), matchWrap());
+        list.addView(label("When idle"), matchWrap());
+        list.addView(choices(IDLE_MODES, idleMode, i -> { idleMode = i; saveSettings(); }), matchWrap());
+        list.addView(label("Idle after"), matchWrap());
+        list.addView(choices(IDLE_LABELS, idleChoice, i -> { idleChoice = i; saveSettings(); }), matchWrap());
+        list.addView(slider("Normal brightness", 0, brightNormal, v -> v == 0 ? "system" : v + "%",
+                v -> { brightNormal = v; applyBrightness(false); }, this::saveSettings), matchWrap());
+        // Dragging previews the dimmed level; letting go returns to normal.
+        list.addView(slider("Dimmed brightness", 1, brightDim, v -> v + "%",
+                v -> { brightDim = v; applyBrightness(true); }, () -> { saveSettings(); applyBrightness(false); }), matchWrap());
+        list.addView(switchRow("Pixel shift (burn-in protection)", pixelShift, on -> { pixelShift = on; saveSettings(); }), matchWrap());
+
+        section(list, "Spotify account");
+        TextView account = text("Client ID: " + spotify.clientIdHint() + "\n"
+                + (spotify.isConnected() ? "Connected" : "Not connected"), 14, false);
+        list.addView(account, matchWrap());
+        if (spotify.isConnected()) {
+            list.addView(action("CHECK ACCOUNT", 15, () -> spotify.request("GET", "/me", null, (code, body) -> {
+                if (code != 200) { account.setText(spotify.explain(code, body)); return; }
+                try {
+                    JSONObject j = new JSONObject(body);
+                    String name = str(j, "display_name");
+                    account.setText("Connected as " + (name.isEmpty() ? str(j, "id") : name) + "\nClient ID: " + spotify.clientIdHint());
+                } catch (JSONException e) {
+                    account.setText("Account response unreadable");
+                }
+            })));
+        }
+        list.addView(action("CHANGE CLIENT ID", 15, this::showSetup));
+        if (spotify.isConnected()) {
+            list.addView(action("DISCONNECT", 15, () -> { forgetSession(); status("Disconnected"); showSettings(); }));
+        } else {
+            list.addView(action("CONNECT TO SPOTIFY", 15, this::login));
+        }
         content.addView(action("BACK", 17, this::showPlayer));
     }
 
@@ -536,24 +868,22 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             status("Copied " + SpotifyClient.REDIRECT);
         }));
 
-        EditText id = new EditText(this);
-        id.setSingleLine(true);
-        id.setTextColor(GREEN);
-        id.setHintTextColor(HINT);
-        id.setHint("Client ID (32 characters)");
+        EditText id = input("Client ID (32 characters)");
         id.setText(spotify.clientId());
         id.setTypeface(Typeface.MONOSPACE);
         id.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        id.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-        id.setBackgroundTintList(ColorStateList.valueOf(GREEN));
+        id.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         LinearLayout.LayoutParams idLp = matchWrap();
         idLp.topMargin = dp(12);
         list.addView(id, idLp);
 
         Runnable save = () -> {
             String value = id.getText().toString().trim();
-            if (!SpotifyClient.isValidClientId(value)) { error("That doesn't look like a Client ID: it should be 32 letters and numbers (0-9, a-f)."); return; }
+            if (!SpotifyClient.isValidClientId(value)) {
+                error("That doesn't look like a Client ID: it should be 32 letters and numbers (0-9, a-f).");
+                return;
+            }
             hideKeyboard(id);
             spotify.setClientId(value);
             status("Client ID saved");
@@ -567,6 +897,110 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         });
         list.addView(action("SAVE AND CONNECT", 18, save));
         if (spotify.hasClientId()) content.addView(action("BACK", 17, this::showPlayer));
+    }
+
+    private void loadSettings() {
+        keepOn = settings.getBoolean("keepOn", true);
+        showArt = settings.getBoolean("showArt", false);
+        pixelShift = settings.getBoolean("pixelShift", true);
+        idleMode = clamp(settings.getInt("idleMode", 2), 0, IDLE_MODES.length - 1);
+        idleChoice = clamp(settings.getInt("idleChoice", 0), 0, IDLE_SECONDS.length - 1);
+        brightNormal = clamp(settings.getInt("brightNormal", 0), 0, 100);
+        brightDim = clamp(settings.getInt("brightDim", 5), 1, 100);
+        colorIndex = clamp(settings.getInt("color", 0), 0, COLORS.length - 1);
+        applyColors();
+    }
+
+    private void saveSettings() {
+        settings.edit().putBoolean("keepOn", keepOn).putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
+                .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice).putInt("brightNormal", brightNormal)
+                .putInt("brightDim", brightDim).putInt("color", colorIndex).apply();
+    }
+
+    private void applyColors() {
+        accent = COLORS[colorIndex][0];
+        accent2 = COLORS[colorIndex][1];
+    }
+
+    // ================================================================ sleep timer
+
+    private void setSleep(int choice) {
+        handler.removeCallbacks(sleepTimer);
+        sleepChoice = choice;
+        sleepAt = 0;
+        sleepEndOfSong = false;
+        sleepSongUri = "";
+        int minutes = SLEEP_MINUTES[choice];
+        if (minutes > 0) {
+            sleepAt = System.currentTimeMillis() + minutes * 60_000L;
+            handler.postDelayed(sleepTimer, minutes * 60_000L);
+            status("Sleep timer: pausing in " + minutes + " min");
+        } else if (minutes < 0) {
+            sleepEndOfSong = true;
+            sleepSongUri = trackUri;
+            status("Sleep timer: pausing after this song");
+        } else {
+            status("Sleep timer off");
+        }
+    }
+
+    private void sleepNow() {
+        handler.removeCallbacks(sleepTimer);
+        sleepChoice = 0;
+        sleepAt = 0;
+        sleepEndOfSong = false;
+        sleepSongUri = "";
+        isPlaying = false;
+        command("PUT", "/me/player/pause", null);
+        updatePlayerViews();
+        status("Sleep timer: paused");
+    }
+
+    // ================================================================ idle / brightness
+
+    private void enterIdle() {
+        idling = true;
+        if (idleMode == 1 || idleMode == 3) applyBrightness(true);
+        if (idleMode >= 2) setMinimal(true);
+    }
+
+    private void exitIdle() {
+        idling = false;
+        applyBrightness(false);
+        if (minimal) setMinimal(false);
+    }
+
+    /** Clock & song only: hides the top bar, controls, device line and art. */
+    private void setMinimal(boolean m) {
+        minimal = m;
+        int vis = m ? View.GONE : View.VISIBLE;
+        if (topBar != null) topBar.setVisibility(vis);
+        if (message != null) message.setVisibility(vis);
+        if (ctrlColumn != null) ctrlColumn.setVisibility(vis);
+        if (device != null) device.setVisibility(vis);
+        if (clock != null) clock.setTextSize(clockSize());
+        updateArt();
+    }
+
+    private void applyBrightness(boolean dim) {
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        // Affects this app's window only; the system brightness setting is untouched.
+        if (dim) lp.screenBrightness = Math.max(0.01f, brightDim / 100f);
+        else lp.screenBrightness = brightNormal == 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : brightNormal / 100f;
+        getWindow().setAttributes(lp);
+    }
+
+    private void applyKeepOn() {
+        if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void hideSystemUi() {
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
 
     // ================================================================ playback
@@ -586,7 +1020,21 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             try { parsePlayback(new JSONObject(body)); } catch (JSONException e) { return; }
             if (errorShown) status("");
             updatePlayerViews();
+            afterTrackUpdate();
         });
+    }
+
+    /** Queue auto-skip and sleep-after-song both react to the song changing. */
+    private void afterTrackUpdate() {
+        if (!trackUri.isEmpty() && skipUris.remove(trackUri)) {
+            status("Skipped a song you removed from the queue");
+            command("POST", "/me/player/next", null);
+            return;
+        }
+        if (sleepEndOfSong) {
+            if (sleepSongUri.isEmpty()) sleepSongUri = trackUri;
+            else if (!trackUri.isEmpty() && !trackUri.equals(sleepSongUri)) sleepNow();
+        }
     }
 
     private void parsePlayback(JSONObject j) {
@@ -603,11 +1051,14 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             if (!id.isEmpty() && !id.equals(settings.getString("lastDevice", ""))) settings.edit().putString("lastDevice", id).apply();
         }
         JSONObject item = j.optJSONObject("item");
-        if (item == null) { trackName = "Unknown item"; artistName = ""; durationMs = 0; return; }
+        if (item == null) { trackName = "Unknown item"; artistName = ""; durationMs = 0; trackUri = ""; return; }
         trackName = str(item, "name");
+        trackUri = str(item, "uri");
         durationMs = item.optLong("duration_ms");
-        JSONObject show = item.optJSONObject("show");
-        artistName = item.has("artists") ? joinArtists(item) : show != null ? str(show, "name") : "";
+        artistName = subtitle(item);
+        JSONObject album = item.optJSONObject("album");
+        pendingArtUrl = pickImage(album != null ? album.optJSONArray("images") : item.optJSONArray("images"));
+        if (showArt) loadArt(pendingArtUrl);
     }
 
     private void command(String method, String path, String json) { command(method, path, json, true); }
@@ -680,43 +1131,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         } catch (JSONException ignored) { }
     }
 
-    private void updatePlayerViews() {
-        if (screen != Screen.PLAYER || title == null) return;
-        if (!spotify.isConnected()) {
-            title.setText("Not connected");
-            artist.setText("");
-            device.setText("");
-        } else if (!hasPlayback) {
-            title.setText("Nothing playing");
-            artist.setText("Tap ◎ to choose a device");
-            device.setText("");
-        } else {
-            title.setText(trackName);
-            artist.setText(artistName);
-            device.setText(deviceName.isEmpty() ? "" : "on " + deviceName);
-        }
-        play.setText(isPlaying ? "Ⅱ" : "▶");
-        shuffleBtn.setAlpha(shuffle ? 1f : OFF);
-        repeatBtn.setText("track".equals(repeat) ? "↻1" : "↻");
-        repeatBtn.setAlpha("off".equals(repeat) ? OFF : 1f);
-        progressBar.setMax((int) Math.max(durationMs, 1));
-        duration.setText(fmt(durationMs));
-        updateProgressViews();
-    }
-
-    private long currentProgress() {
-        long p = progressMs;
-        if (isPlaying) p += SystemClock.elapsedRealtime() - progressAt;
-        return durationMs > 0 ? Math.min(p, durationMs) : p;
-    }
-
-    private void updateProgressViews() {
-        if (progressBar == null || draggingProgress) return;
-        long p = hasPlayback ? currentProgress() : 0;
-        progressBar.setProgress((int) p);
-        elapsed.setText(fmt(p));
-    }
-
     // ================================================================ misc actions
 
     private void login() {
@@ -749,34 +1163,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         return false;
     }
 
-    // ================================================================ OLED / window
-
-    private void setDimmed(boolean d) {
-        dimmed = d;
-        if (shifter != null) shifter.setAlpha(d ? .35f : 1f);
-        WindowManager.LayoutParams lp = getWindow().getAttributes();
-        // Lowers brightness for this app's window only; system brightness is untouched.
-        lp.screenBrightness = d ? 0.01f : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
-        getWindow().setAttributes(lp);
-    }
-
-    private void applyKeepOn() {
-        if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    }
-
-    @SuppressWarnings("deprecation")
-    private void hideSystemUi() {
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-    }
-
-    private void saveSettings() {
-        settings.edit().putBoolean("keepOn", keepOn).putBoolean("nightMode", nightMode).putBoolean("autoDim", autoDim).apply();
-    }
-
     private void updateClock() {
         if (clock == null) return;
         String pattern = DateFormat.is24HourFormat(this) ? "HH:mm" : "h:mm";
@@ -795,14 +1181,16 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         if (imm != null) imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
     }
 
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
     // ================================================================ status line
 
     private void status(String s) { errorShown = false; if (message != null) message.setText(s); }
     private void error(String s) { errorShown = true; if (message != null) message.setText(s); }
 
     // ================================================================ view helpers
-
-    private interface Toggle { void set(boolean on); }
 
     private abstract static class SeekAdapter implements SeekBar.OnSeekBarChangeListener {
         @Override public void onProgressChanged(SeekBar sb, int value, boolean fromUser) { }
@@ -812,6 +1200,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
 
     private int dp(float d) { return Math.round(d * getResources().getDisplayMetrics().density); }
     private float dpf(float d) { return d * getResources().getDisplayMetrics().density; }
+    private static int clamp(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
+    private static int withAlpha(int color, int alpha) { return (color & 0x00FFFFFF) | (alpha << 24); }
 
     private LinearLayout vertical() {
         LinearLayout l = new LinearLayout(this);
@@ -825,11 +1215,49 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     private TextView text(String s, int size, boolean bold) {
         TextView v = new TextView(this);
         v.setText(s);
-        v.setTextColor(GREEN);
         v.setTextSize(size);
         v.setGravity(Gravity.CENTER);
         if (bold) v.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        tint(v, accent, accent2);
         return v;
+    }
+
+    /**
+     * Colours a TextView with a solid colour, or a left-to-right gradient across the text itself.
+     * The colours live in the view's tag so re-tinting replaces them instead of stacking listeners.
+     */
+    private void tint(TextView v, int c1, int c2) {
+        boolean first = v.getTag() == null;
+        v.setTag(new int[]{c1, c2});
+        v.setTextColor(c1);
+        if (first) {
+            v.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or2, ob) -> applyShader(v));
+            v.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void afterTextChanged(Editable s) { v.post(() -> applyShader(v)); }
+            });
+        }
+        applyShader(v);
+    }
+
+    private static void applyShader(TextView v) {
+        Object tag = v.getTag();
+        if (!(tag instanceof int[])) return;
+        int[] c = (int[]) tag;
+        if (c[0] == c[1]) {
+            if (v.getPaint().getShader() != null) { v.getPaint().setShader(null); v.invalidate(); }
+            return;
+        }
+        int inner = v.getWidth() - v.getTotalPaddingLeft() - v.getTotalPaddingRight();
+        if (inner <= 0) return;
+        float textWidth = 0;
+        for (String line : v.getText().toString().split("\n")) textWidth = Math.max(textWidth, v.getPaint().measureText(line));
+        textWidth = Math.max(1, Math.min(textWidth, inner));
+        boolean centred = (v.getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL;
+        float start = v.getTotalPaddingLeft() + (centred ? (inner - textWidth) / 2f : 0);
+        v.getPaint().setShader(new LinearGradient(start, 0, start + textWidth, 0, c[0], c[1], Shader.TileMode.CLAMP));
+        v.invalidate();
     }
 
     private TextView oneLine(TextView v) {
@@ -838,11 +1266,11 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         return v;
     }
 
-    /** A tappable label with a subtle green ripple. A null action means the caller sets its own listener. */
+    /** A tappable label with a ripple. A null action means the caller sets its own listener. */
     private TextView action(String s, int size, Runnable r) {
         TextView v = text(s, size, false);
         v.setPadding(dp(12), dp(12), dp(12), dp(12));
-        v.setBackground(new RippleDrawable(ColorStateList.valueOf(0x4000FF00), null, new ColorDrawable(Color.WHITE)));
+        v.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 0x40)), null, new ColorDrawable(Color.WHITE)));
         if (r != null) v.setOnClickListener(x -> r.run());
         return v;
     }
@@ -850,28 +1278,26 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     private TextView icon(String glyph, String description, Runnable r) {
         TextView v = action(glyph, 26, r);
         v.setContentDescription(description);
-        v.setMinWidth(dp(48));
+        v.setMinWidth(dp(44));
+        v.setPadding(dp(8), dp(8), dp(8), dp(8));
         return v;
     }
 
-    private TextView toggle(String label, boolean initial, Toggle t) {
-        TextView v = action(label, 13, null);
-        v.setPadding(dp(10), dp(12), dp(10), dp(12));
-        v.setAlpha(initial ? 1f : OFF);
-        v.setOnClickListener(x -> {
-            boolean on = v.getAlpha() < .5f;
-            v.setAlpha(on ? 1f : OFF);
-            t.set(on);
-        });
-        return v;
+    private EditText input(String hint) {
+        EditText e = new EditText(this);
+        e.setSingleLine(true);
+        e.setTextColor(accent);
+        e.setHintTextColor(withAlpha(accent, 0x80));
+        e.setHint(hint);
+        e.setBackgroundTintList(ColorStateList.valueOf(accent));
+        return e;
     }
 
     private SeekBar seekBar() {
         SeekBar s = new SeekBar(this);
-        ColorStateList g = ColorStateList.valueOf(GREEN);
-        s.setProgressTintList(g);
-        s.setThumbTintList(g);
-        s.setProgressBackgroundTintList(ColorStateList.valueOf(TRACK));
+        s.setProgressTintList(ColorStateList.valueOf(accent));
+        s.setThumbTintList(ColorStateList.valueOf(accent2));
+        s.setProgressBackgroundTintList(ColorStateList.valueOf(withAlpha(accent, 0x40)));
         return s;
     }
 
@@ -879,6 +1305,78 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         TextView h = text(s, 22, true);
         h.setPadding(0, dp(4), 0, dp(12));
         content.addView(h, matchWrap());
+    }
+
+    private void section(LinearLayout list, String s) {
+        TextView h = text(s.toUpperCase(Locale.ROOT), 13, true);
+        h.setAlpha(.6f);
+        h.setPadding(0, dp(24), 0, dp(4));
+        list.addView(h, matchWrap());
+    }
+
+    private TextView label(String s) {
+        TextView l = text(s, 14, false);
+        l.setAlpha(.8f);
+        l.setPadding(0, dp(10), 0, 0);
+        return l;
+    }
+
+    /** A horizontally scrolling row of options; the selected one is bright, the rest faded. */
+    private HorizontalScrollView choices(String[] options, int selected, IntChoice onPick) {
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setFillViewport(true);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER);
+        for (int i = 0; i < options.length; i++) {
+            int index = i;
+            TextView chip = action(options[i], 15, null);
+            chip.setPadding(dp(10), dp(10), dp(10), dp(10));
+            chip.setAlpha(i == selected ? 1f : OFF);
+            chip.setOnClickListener(v -> {
+                for (int j = 0; j < row.getChildCount(); j++) row.getChildAt(j).setAlpha(j == index ? 1f : OFF);
+                onPick.pick(index);
+            });
+            row.addView(chip);
+        }
+        hs.addView(row, new FrameLayout.LayoutParams(-1, -2));
+        return hs;
+    }
+
+    private TextView switchRow(String label, boolean initial, Toggle onChange) {
+        TextView v = action("", 16, null);
+        boolean[] state = {initial};
+        v.setText(label + ":  " + (initial ? "ON" : "OFF"));
+        v.setAlpha(initial ? 1f : .6f);
+        v.setOnClickListener(x -> {
+            state[0] = !state[0];
+            v.setText(label + ":  " + (state[0] ? "ON" : "OFF"));
+            v.setAlpha(state[0] ? 1f : .6f);
+            onChange.set(state[0]);
+        });
+        return v;
+    }
+
+    private LinearLayout slider(String name, int min, int value, Labeler fmt, IntChoice onMove, Runnable onDone) {
+        LinearLayout box = vertical();
+        box.setPadding(0, dp(10), 0, dp(4));
+        TextView l = text(name + ": " + fmt.label(value), 14, false);
+        l.setAlpha(.8f);
+        box.addView(l, matchWrap());
+        SeekBar s = seekBar();
+        s.setMax(100 - min);
+        s.setProgress(value - min);
+        s.setOnSeekBarChangeListener(new SeekAdapter() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                if (!fromUser) return;
+                int v = p + min;
+                l.setText(name + ": " + fmt.label(v));
+                onMove.pick(v);
+            }
+            @Override public void onStopTrackingTouch(SeekBar sb) { onDone.run(); }
+        });
+        box.addView(s, matchWrap());
+        return box;
     }
 
     private LinearLayout scrollList() {
@@ -894,6 +1392,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     /** optString returns "null" for JSON nulls; this returns "". */
     private static String str(JSONObject o, String key) { return o.isNull(key) ? "" : o.optString(key, ""); }
 
+    /** Artists for a track, or the show name for a podcast episode. */
+    private static String subtitle(JSONObject item) {
+        if (item.has("artists")) return joinArtists(item);
+        JSONObject show = item.optJSONObject("show");
+        return show != null ? str(show, "name") : "";
+    }
+
     private static String joinArtists(JSONObject item) {
         JSONArray a = item.optJSONArray("artists");
         if (a == null) return "";
@@ -905,6 +1410,22 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             sb.append(str(o, "name"));
         }
         return sb.toString();
+    }
+
+    /** Picks the smallest image at least 300 px wide (or the largest available). */
+    private static String pickImage(JSONArray images) {
+        if (images == null || images.length() == 0) return "";
+        String best = "", largest = "";
+        int bestW = Integer.MAX_VALUE, largestW = -1;
+        for (int i = 0; i < images.length(); i++) {
+            JSONObject im = images.optJSONObject(i);
+            if (im == null) continue;
+            int w = im.optInt("width", 0);
+            String url = str(im, "url");
+            if (w >= 300 && w < bestW) { bestW = w; best = url; }
+            if (w > largestW) { largestW = w; largest = url; }
+        }
+        return best.isEmpty() ? largest : best;
     }
 
     private static List<JSONObject> parseDevices(String body) {

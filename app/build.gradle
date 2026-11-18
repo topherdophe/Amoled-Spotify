@@ -1,8 +1,16 @@
 plugins { id 'com.android.application' }
 
-// Client ID comes from the SPOTIFY_CLIENT_ID environment variable (set by the GitHub Action from the
-// repository variable) or a Gradle property (-PSPOTIFY_CLIENT_ID=... or ~/.gradle/gradle.properties).
+// Optional default Client ID (the app also lets you enter one). Comes from the SPOTIFY_CLIENT_ID
+// environment variable (GitHub Action) or a Gradle property (-PSPOTIFY_CLIENT_ID=...).
 def spotifyClientId = (System.getenv('SPOTIFY_CLIENT_ID') ?: project.findProperty('SPOTIFY_CLIENT_ID') ?: 'REPLACE_WITH_SPOTIFY_CLIENT_ID').toString().trim()
+
+// Permanent signing key, so new builds install over old ones. The GitHub Action writes the keystore
+// from repository secrets; without them the build falls back to a throwaway debug key.
+def keystorePath = System.getenv('SIGNING_KEYSTORE_PATH')
+def hasSigningKey = keystorePath != null && new File(keystorePath).exists()
+
+// Each GitHub build gets a higher version number so Android accepts it as an update.
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '3').toInteger()
 
 android {
     namespace 'com.example.neonspotify'
@@ -11,9 +19,25 @@ android {
         applicationId 'com.example.neonspotify'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '2.0'
+        versionCode buildNumber
+        versionName "3.0.${buildNumber}"
         resValue 'string', 'spotify_client_id', spotifyClientId
+    }
+    signingConfigs {
+        neon {
+            if (hasSigningKey) {
+                storeFile file(keystorePath)
+                storeType 'pkcs12'
+                storePassword System.getenv('SIGNING_PASSWORD')
+                keyAlias System.getenv('SIGNING_KEY_ALIAS')
+                keyPassword System.getenv('SIGNING_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (hasSigningKey) signingConfig signingConfigs.neon
+        }
     }
     buildFeatures { resValues true }
     compileOptions {

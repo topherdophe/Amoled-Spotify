@@ -176,7 +176,7 @@ final class SpotifyClient {
         String lower = msg.toLowerCase(Locale.ROOT);
         if (code == 403 && lower.contains("registered"))
             return "This Spotify account isn't allowlisted for Client ID " + clientIdHint()
-                    + ". Check User Management in the Spotify dashboard, then ⓘ → Reconnect.";
+                    + ". Check User Management in the Spotify dashboard, then Settings → Disconnect and connect again.";
         if (code == 403 && lower.contains("premium")) return "Spotify Premium is required for playback control.";
         if (code == 404) return "No active playback device. Tap ◎ to choose one.";
         if (code == 429) return "Spotify rate limit reached. Slowing down…";

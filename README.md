@@ -1,45 +1,58 @@
 # Neon Controller (Amoled-Spotify)
 
-A minimal pure-black (`#000000`) and neon-green (`#00FF00`) Spotify remote for Android, built for AMOLED screens. Plain Java with Android framework views only: no third-party libraries.
+A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain Java with Android framework views only: no third-party libraries.
 
 ## Features
 
-- **Now playing**: large clock, track, artist, device, battery.
-- **Controls**: play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
+- **Now playing**: large clock, optional album art, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
-- **In-app setup**: paste your Spotify Client ID on first launch. You can change it later under ⓘ.
-- **Device picker (◎)**: lists your Spotify Connect devices and switches playback to the one you tap. If you press play with no active device, the app reuses your last device (or the only one available) automatically. "Open Spotify on this phone" starts the Spotify app so the phone shows up as a device.
-- **Search (⌕)** and **Playlists (☷)** with **MORE** paging. Spotify limits search to 10 results per page for Development Mode apps.
-- **OLED care**:
-  - The whole UI drifts a few dp every 30 s.
-  - **AUTO-DIM** dims the app after 90 s without a touch. The first touch only wakes it, so it can't press a button by accident.
-  - **NIGHT** keeps the app permanently dim.
-  - **SCREEN ON** keeps the display awake.
-  - Nothing polls or runs while the screen is off or the app is in the background.
-- **Diagnostics (ⓘ)**: the Client ID in use (with a button to change it), the last request and its result, an account test, and disconnect/reconnect.
+- **Up next (♫)**: see the queue and tap a song to skip straight to it.
+  - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
+- **Search (⌕)**: tap a result to play it, or hold it to add it to the queue. **MORE** loads further pages of 10.
+- **Playlists (☷)**, with paging.
+- **Devices (◎)**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
+- **Settings (⚙)**:
+  - **Sleep timer**: 15–90 minutes, or end of the current song.
+  - **Highlight colour**: 7 solid colours or 4 gradients.
+  - **Show album art**.
+  - **Keep screen awake**.
+  - **When idle**: nothing, dim, clock & song only, or both. Choose an idle time of 30 s, 1, 2 or 5 min.
+  - **Normal and dimmed brightness** sliders. These change this app's window only, not your phone's brightness setting.
+  - **Pixel shift**: burn-in protection.
+  - **Spotify account**: check the account, change the Client ID, disconnect.
+- **In-app setup**: paste your Spotify Client ID on first launch.
 
 ## Setup
 
 1. Create an app at https://developer.spotify.com/dashboard. Tick **Web API**, and add the redirect URI `neonspotify://callback` exactly.
 2. Under **User Management**, add the name and email of each Spotify account that will use the app (up to 5). The email must match the one shown at spotify.com/account. The app owner needs Spotify Premium.
 3. Push to `main` (or run the workflow manually). Download the APK from the run's **Artifacts**.
-4. Install it on your phone, paste your Client ID on the setup screen, tap **SAVE AND CONNECT**, and check the account shown on Spotify's consent screen.
+4. Install it, paste your Client ID on the setup screen, and tap **SAVE AND CONNECT**.
 
-Optional: to bake a default Client ID into the build, add a repository variable `SPOTIFY_CLIENT_ID` under **Settings → Secrets and variables → Actions → Variables**. A Client ID entered in the app always takes priority. A Client ID isn't a secret: this app uses PKCE, so there is no client secret.
+Optional: add a repository variable `SPOTIFY_CLIENT_ID` to bake in a default Client ID. A Client ID typed in the app always wins.
 
-To build locally instead, run `gradle assembleDebug -PSPOTIFY_CLIENT_ID=your_id` (JDK 17, Android SDK 35).
+## Signing (installing updates over old versions)
 
-> **Updating:** each GitHub build is signed with a fresh debug key, so Android refuses to install a new build over an old one. Uninstall the old app first.
+Android only installs an update over an app signed with the same key. Add these three **repository secrets** (Settings → Secrets and variables → Actions → Secrets):
+
+| Secret | Value |
+|---|---|
+| `SIGNING_KEYSTORE_BASE64` | the base64 of the `.p12` keystore |
+| `SIGNING_PASSWORD` | the keystore password |
+| `SIGNING_KEY_ALIAS` | the key alias |
+
+With these secrets set, every build uses the same key and installs over the previous one, keeping your login and settings. Without them, the build falls back to a throwaway key, and you'll need to uninstall before each update. Never commit the keystore, and keep a backup: if you lose it, you'll have to uninstall once more and switch to a new key.
 
 ## Troubleshooting
 
 | Message | Meaning |
 |---|---|
-| 403 *User may not be registered* | The account that logged in isn't allowlisted for the Client ID shown under ⓘ. Compare that Client ID with the dashboard, check User Management, then use ⓘ → DISCONNECT AND RECONNECT. |
+| 403 *User may not be registered* | The account that logged in isn't allowlisted for the Client ID shown in Settings. Check User Management, then Settings → Disconnect and connect again. |
 | No active playback device | Open Spotify on any device, or tap ◎ and pick one. |
 | Rate limit reached | Spotify throttles Development Mode apps. The app slows its polling automatically. |
 
 ## Notes
 
-- Playback control requires Spotify Premium and a Spotify Connect device. The audio itself plays in the Spotify app or on a speaker.
+- Playback control requires Spotify Premium and a Spotify Connect device. Spotify doesn't allow remote volume control on phones, so the app has no volume control.
+- The sleep timer and queue auto-skip run inside the app. They're most reliable with **Keep screen awake** on.
 - Login uses Authorization Code with PKCE (no client secret). Tokens are stored in app-private storage.
