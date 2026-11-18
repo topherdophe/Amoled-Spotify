@@ -42,7 +42,8 @@ final class SpotifyClient {
     static final String REDIRECT = "neonspotify://callback";
     private static final String TOKEN_URL = "https://accounts.spotify.com/api/token";
     private static final String SCOPES = "user-read-playback-state user-modify-playback-state "
-            + "user-read-currently-playing playlist-read-private playlist-read-collaborative";
+            + "user-read-currently-playing playlist-read-private playlist-read-collaborative "
+            + "playlist-modify-private playlist-modify-public";
 
     private final Listener listener;
     private final SharedPreferences prefs;
@@ -204,6 +205,8 @@ final class SpotifyClient {
         if (code == 403 && lower.contains("registered"))
             return "This Spotify account isn't allowlisted for Client ID " + clientIdHint()
                     + ". Check User Management in the Spotify dashboard, then Settings → Disconnect and connect again.";
+        if (code == 403 && lower.contains("scope"))
+            return "Spotify needs new permissions for this. Go to Settings → Disconnect, then connect again.";
         if (code == 403 && lower.contains("premium")) return "Spotify Premium is required for playback control.";
         if (code == 404) return "No active playback device. Tap ◎ to choose one.";
         if (code == 429) return "Spotify rate limit reached. Slowing down…";

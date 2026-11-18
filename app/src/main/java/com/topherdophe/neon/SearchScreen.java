@@ -10,7 +10,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Song search: tap to play, + (or long-press) to add to the queue. */
+/** Song search: tap to play, + (or long-press) for queue, playlist and radio options. */
 final class SearchScreen extends BaseScreen {
     private static final int PAGE = 10; // Spotify's Development Mode search limit since Feb 2026
     /** Kept between visits so going back to search shows the last results. */
@@ -25,7 +25,7 @@ final class SearchScreen extends BaseScreen {
         content.addView(q, Ui.matchWrap());
         TextView go = ui.action("SEARCH", 18, null);
         content.addView(go);
-        hint("Tap to play · + adds to queue");
+        hint("Tap to play · + to queue, add to a playlist or play radio");
         LinearLayout list = scrollList();
         backButton();
 
@@ -59,8 +59,8 @@ final class SearchScreen extends BaseScreen {
                     if (t == null) continue;
                     String uri = Json.str(t, "uri"), name = Json.str(t, "name");
                     LinearLayout r = ui.listRow(name, Json.joinArtists(t), 17,
-                            () -> playback.playTrack(uri), () -> playback.addToQueue(uri, name));
-                    r.setOnLongClickListener(v -> { playback.addToQueue(uri, name); return true; });
+                            () -> playback.playTrack(uri), () -> SongMenu.show(app, t));
+                    r.setOnLongClickListener(v -> { SongMenu.show(app, t); return true; });
                     list.addView(r, Ui.matchWrap());
                 }
                 if (!tracks.isNull("next")) {

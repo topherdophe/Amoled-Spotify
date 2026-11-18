@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Custom screen-reader action on queue rows. -->
-    <item name="action_remove_from_queue" type="id" />
-</resources>

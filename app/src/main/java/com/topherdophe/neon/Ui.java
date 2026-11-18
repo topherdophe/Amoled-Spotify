@@ -1,5 +1,6 @@
 package com.topherdophe.neon;
 
+import android.app.Dialog;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -17,6 +18,8 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -43,6 +46,21 @@ final class Ui {
         @Override public void onProgressChanged(SeekBar sb, int value, boolean fromUser) { }
         @Override public void onStartTrackingTouch(SeekBar sb) { }
         @Override public void onStopTrackingTouch(SeekBar sb) { }
+    }
+
+    /** A small black pop-up box with a highlight-coloured border. */
+    static final class Popup {
+        final Dialog dialog;
+        /** Scrolling column for the pop-up's options. */
+        final LinearLayout list;
+
+        Popup(Dialog dialog, LinearLayout list) {
+            this.dialog = dialog;
+            this.list = list;
+        }
+
+        void show() { dialog.show(); }
+        void dismiss() { dialog.dismiss(); }
     }
 
     final Context ctx;
@@ -168,10 +186,10 @@ final class Ui {
     }
 
     /**
-     * A list entry: a title with a smaller, dimmed subtitle underneath, and an optional "+" (add to queue)
-     * button on the right. A null onTap leaves the row's click handling to the caller.
+     * A list entry: a title with a smaller, dimmed subtitle underneath, and an optional "+" button on the
+     * right (it opens the song menu). A null onTap leaves the row's click handling to the caller.
      */
-    LinearLayout listRow(String titleText, String sub, int titleSize, Runnable onTap, Runnable onQueue) {
+    LinearLayout listRow(String titleText, String sub, int titleSize, Runnable onTap, Runnable onPlus) {
         LinearLayout row = new LinearLayout(ctx);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackground(ripple());
@@ -192,7 +210,7 @@ final class Ui {
         // Read the row as one item ("Song, Artist") instead of two separate texts.
         row.setContentDescription(hasSub ? titleText + ", " + sub : titleText);
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-        if (onQueue != null) row.addView(glyph("+", 26, "Add " + titleText + " to queue", onQueue));
+        if (onPlus != null) row.addView(glyph("+", 26, "Options for " + titleText, onPlus));
         if (onTap != null) row.setOnClickListener(v -> onTap.run());
         return row;
     }
@@ -333,6 +351,35 @@ final class Ui {
         });
         box.addView(s, matchWrap());
         return box;
+    }
+
+    Popup popup(String title) {
+        Dialog d = new Dialog(ctx);
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout box = vertical();
+        box.setPadding(dp(16), dp(12), dp(16), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.BLACK);
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(Math.max(1, dp(1)), withAlpha(accent(), 0x99));
+        box.setBackground(bg);
+        TextView h = oneLine(text(title, 19, true));
+        h.setPadding(0, dp(4), 0, dp(8));
+        markHeading(h);
+        box.addView(h, matchWrap());
+        ScrollView scroll = new ScrollView(ctx);
+        LinearLayout list = vertical();
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        box.addView(scroll, matchWrap());
+        d.setContentView(box);
+        Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.setLayout(Math.min(ctx.getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)),
+                    WindowManager.LayoutParams.WRAP_CONTENT);
+            w.setDimAmount(.8f);
+        }
+        return new Popup(d, list);
     }
 
     /** A vertical list inside a ScrollView that fills the remaining height of parent. */

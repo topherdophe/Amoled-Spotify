@@ -8,7 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** One playlist: play / shuffle-play it, tap a song to play from there, + to add a song to the queue. */
+/** One playlist: play / shuffle-play it, tap a song to play from there, + for the song menu. */
 final class PlaylistScreen extends BaseScreen {
     private final String id, uri, name;
 
@@ -59,9 +59,10 @@ final class PlaylistScreen extends BaseScreen {
                     if (t == null) continue;
                     String songUri = Json.str(t, "uri"), songName = Json.str(t, "name");
                     if (songUri.isEmpty() || songUri.startsWith("spotify:local:")) continue;
+                    JSONObject song = t;
                     list.addView(ui.listRow(songName, Json.subtitle(t), 17,
                             () -> playback.playInContext(uri, songUri),
-                            () -> playback.addToQueue(songUri, songName)), Ui.matchWrap());
+                            () -> SongMenu.show(app, song)), Ui.matchWrap());
                 }
                 String next = Json.str(page, "next");
                 if (!next.isEmpty()) {

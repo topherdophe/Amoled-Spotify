@@ -11,6 +11,8 @@ import org.json.JSONObject;
 final class PlaylistsScreen extends BaseScreen {
     @Override void build() {
         heading("Playlists");
+        content.addView(ui.action("+  NEW PLAYLIST", 16, () -> SongMenu.newPlaylist(app,
+                pl -> app.open(new PlaylistScreen(pl.id, pl.uri, pl.name)))));
         LinearLayout list = scrollList();
         backButton();
         if (requireConnected(list)) page(list, "/me/playlists?limit=50");

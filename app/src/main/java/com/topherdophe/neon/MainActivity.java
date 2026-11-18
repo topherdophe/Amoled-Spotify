@@ -32,6 +32,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     AppSettings settings;
     SpotifyClient spotify;
     Playback playback;
+    Library library;
     Ui ui;
     private BaseScreen screen;
 
@@ -53,6 +54,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         ui = new Ui(this, settings);
         spotify = new SpotifyClient(this, getString(R.string.spotify_client_id), this);
         playback = new Playback(spotify, settings, this);
+        library = new Library(spotify);
 
         Window w = getWindow();
         w.setStatusBarColor(Color.BLACK);

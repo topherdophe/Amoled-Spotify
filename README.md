@@ -7,9 +7,13 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 - **Now playing**: large clock, optional album art, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
 - **Up next (♫)**: see the queue and tap a song to skip straight to it.
-  - Swipe a song away (or long-press it) to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
-- **Search (⌕)**: tap a result to play it, or tap **+** to add it to the queue. **MORE** loads further pages of 10.
-- **Playlists (☷)**: open a playlist to play or shuffle it, tap a song to play from there, or tap **+** to queue a song.
+  - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
+- **Search (⌕)**: tap a result to play it. **MORE** loads further pages of 10.
+- **Song menu (+)**: next to songs in search results and playlists. It has three options:
+  - **Add to queue**.
+  - **Add to playlist**: choose one of your own (or collaborative) playlists, or make a new one.
+  - **Play artist radio**: plays the song, then queues a shuffled mix of other songs by the same artist. Spotify closed its recommendations API to new apps in 2024, so real song radio isn't available to this app.
+- **Playlists (☷)**: **+ NEW PLAYLIST** makes a private playlist. Open a playlist to play or shuffle it, or tap a song to play from there.
   - Spotify only lets this app list the songs in playlists you own or collaborate on. Others can still be played or shuffled.
 - **Devices (◎)**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
 - **Settings (⚙)**:

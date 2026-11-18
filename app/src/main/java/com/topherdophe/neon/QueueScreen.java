@@ -1,8 +1,5 @@
 package com.topherdophe.neon;
 
-import android.os.Bundle;
-import android.view.View;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -10,7 +7,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Up next: tap a song to skip to it, swipe it away (or long-press) to remove it. */
+/** Up next: tap a song to skip to it, swipe it away to remove it. */
 final class QueueScreen extends BaseScreen {
     @Override void build() {
         heading("Up next");
@@ -54,22 +51,6 @@ final class QueueScreen extends BaseScreen {
                     app.status("Removed. Spotify can't edit the queue, so the app skips it when it comes up.");
                 };
                 item.setOnTouchListener(new SwipeDismiss(app, remove));
-                // Screen readers can't swipe a row away, so offer long-press and a "Remove from queue" action too.
-                item.setOnLongClickListener(v -> { remove.run(); return true; });
-                item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                    @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                        super.onInitializeAccessibilityNodeInfo(host, info);
-                        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(
-                                AccessibilityNodeInfo.ACTION_CLICK, "Skip to this song"));
-                        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(
-                                R.id.action_remove_from_queue, "Remove from queue"));
-                    }
-
-                    @Override public boolean performAccessibilityAction(View host, int action, Bundle args) {
-                        if (action == R.id.action_remove_from_queue) { remove.run(); return true; }
-                        return super.performAccessibilityAction(host, action, args);
-                    }
-                });
                 list.addView(item, Ui.matchWrap());
                 shown++;
             }
