@@ -2,7 +2,10 @@ package com.topherdophe.neon;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.BatteryManager;
@@ -50,6 +53,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     private long lastTouch = SystemClock.elapsedRealtime();
     private int ticks;
 
+    // Show over lock screen: whether the app was in front when the screen went off.
+    private long pausedAt;
+    private boolean leftApp;
+    private final BroadcastReceiver screenOff = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { bringBackOverLock(); }
+    };
+
     // ================================================================ lifecycle
 
     @Override protected void onCreate(Bundle saved) {
@@ -73,6 +83,9 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         buildShell();
         open(spotify.hasClientId() ? new PlayerScreen() : new SetupScreen());
         if (saved == null) handleIntent(getIntent());
+        IntentFilter off = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, off, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(screenOff, off);
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -89,6 +102,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     @Override protected void onResume() {
         super.onResume();
+        pausedAt = 0;
+        leftApp = false;
         hideSystemUi();
         lastTouch = SystemClock.elapsedRealtime();
         exitIdle();
@@ -103,11 +118,25 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         // No polling while the screen is off or the app is hidden. The sleep timer is an alarm, so it still fires.
         handler.removeCallbacks(tick);
         handler.removeCallbacks(poll);
+        pausedAt = SystemClock.elapsedRealtime();
         super.onPause();
+    }
+
+    /** Home, recents or another app: the user chose to leave, so don't jump back over the lock screen. */
+    @Override protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        leftApp = true;
+    }
+
+    /** Browser, Spotify, voice, App info: those stay on top, so don't cover them. */
+    @Override public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        leftApp = true;
+        super.startActivityForResult(intent, requestCode, options);
     }
 
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        try { unregisterReceiver(screenOff); } catch (IllegalArgumentException ignored) { }
         playback.shutdown();
         spotify.shutdown();
         super.onDestroy();
@@ -412,6 +441,23 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         // The older window flag too: some phones only honour one of the two.
         if (settings.overLock) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+    }
+
+    /**
+     * Some phones (Samsung, OnePlus) put their own lock screen on top when the screen goes off,
+     * even though this activity may show over it. If the app was in front when that happened,
+     * bring it straight back to the top so it's what you see when the screen wakes.
+     * It never wakes the screen itself and never unlocks the phone.
+     */
+    private void bringBackOverLock() {
+        if (!settings.overLock || leftApp || isFinishing()) return;
+        boolean wasInFront = pausedAt == 0 || SystemClock.elapsedRealtime() - pausedAt < 3000;
+        if (!wasInFront) return;
+        applyLockScreen();
+        Intent front = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        // The application context skips startActivityForResult above, so leftApp stays false.
+        try { getApplicationContext().startActivity(front); } catch (RuntimeException ignored) { }
     }
 
     void applyKeepOn() {
