@@ -62,6 +62,12 @@ jobs:
           tail -5 build.log
           rm -f "$RUNNER_TEMP/neon-release.p12"
 
+      - name: Show signing certificate
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          SHA=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | grep -m1 "SHA-256 digest" | awk '{print $NF}')
+          echo "::notice title=Signing certificate SHA-256::$SHA"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
