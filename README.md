@@ -8,8 +8,9 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
 - **Up next (♫)**: see the queue and tap a song to skip straight to it.
   - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
-- **Search (⌕)**: tap a result to play it, or hold it to add it to the queue. **MORE** loads further pages of 10.
-- **Playlists (☷)**, with paging.
+- **Search (⌕)**: tap a result to play it, or tap **+** to add it to the queue. **MORE** loads further pages of 10.
+- **Playlists (☷)**: open a playlist to play or shuffle it, tap a song to play from there, or tap **+** to queue a song.
+  - Spotify only lets this app list the songs in playlists you own or collaborate on. Others can still be played or shuffled.
 - **Devices (◎)**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
 - **Settings (⚙)**:
   - **Sleep timer**: 15–90 minutes, or end of the current song.
