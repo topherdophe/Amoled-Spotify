@@ -1,5 +1,6 @@
 package com.topherdophe.neon;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Typeface;
@@ -19,6 +20,7 @@ final class SettingsScreen extends BaseScreen {
     /** Page scroll position, restored after a colour change rebuilds the screen. */
     private final int scrollY;
     private TextView batteryRow;
+    private View page;
 
     SettingsScreen() { this(0); }
 
@@ -28,6 +30,7 @@ final class SettingsScreen extends BaseScreen {
         heading("Settings");
         LinearLayout list = scrollList();
         View page = (View) list.getParent();
+        this.page = page;
         AppSettings s = settings;
 
         // Sleep timer: one row; the time limits only appear after tapping it.
@@ -85,7 +88,24 @@ final class SettingsScreen extends BaseScreen {
 
         ui.section(list, "Screen");
         ui.setting(list, ui.switchRow("Keep screen awake", s.keepOn, on -> { s.keepOn = on; s.save(); app.applyKeepOn(); }));
-        ui.setting(list, ui.switchRow("Show over lock screen", s.overLock, on -> { s.overLock = on; s.save(); app.applyLockScreen(); }));
+        ui.setting(list, ui.switchRow("Show over lock screen", s.overLock, on -> {
+            s.overLock = on;
+            if (!on && s.lockIdle) { s.lockIdle = false; LockAdmin.remove(app); }
+            s.save();
+            app.applyLockScreen();
+            app.applyKeepOn();
+            reopen();
+        }));
+        ui.setting(list, ui.switchRow("Lock phone when idle, keep app on screen", s.lockIdle, on -> {
+            s.lockIdle = on;
+            if (on) s.overLock = true;
+            s.save();
+            app.applyLockScreen();
+            app.applyKeepOn();
+            if (!on) { LockAdmin.remove(app); reopen(); return; }
+            if (!LockAdmin.isActive(app)) askForLockPermission();
+            else reopen();
+        }));
         list.addView(ui.label("When idle"), Ui.matchWrap());
         ui.setting(list, ui.choices("When idle", AppSettings.IDLE_MODES, s.idleMode, i -> { s.idleMode = i; s.save(); }));
         list.addView(ui.label("Idle after"), Ui.matchWrap());
@@ -114,7 +134,33 @@ final class SettingsScreen extends BaseScreen {
     }
 
     /** Coming back from Android's settings: show the new battery state. */
-    @Override void onResume() { updateBattery(); }
+    @Override void onResume() {
+        updateBattery();
+        // Came back from the device admin page without allowing it: turn the setting back off.
+        if (settings.lockIdle && !LockAdmin.isActive(app)) {
+            settings.lockIdle = false;
+            settings.save();
+            app.applyKeepOn();
+            reopen();
+        }
+    }
+
+    private void reopen() { app.open(new SettingsScreen(page != null ? page.getScrollY() : 0)); }
+
+    /** Android's own page for allowing the app to lock the screen (its only device admin power). */
+    private void askForLockPermission() {
+        Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, LockAdmin.name(app))
+                .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Lets Neon Controller lock the phone when idle "
+                        + "and keep showing over the lock screen. It can only lock the screen, nothing else.");
+        try { app.startActivity(i); }
+        catch (ActivityNotFoundException e) {
+            settings.lockIdle = false;
+            settings.save();
+            app.error("This phone doesn't allow apps to lock the screen");
+            reopen();
+        }
+    }
 
     private void updateBattery() {
         if (batteryRow == null) return;

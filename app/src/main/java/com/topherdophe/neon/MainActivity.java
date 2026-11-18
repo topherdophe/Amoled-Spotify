@@ -2,6 +2,7 @@ package com.topherdophe.neon;
 
 import android.app.Activity;
 import android.app.KeyguardManager;
+import android.app.admin.DevicePolicyManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -55,7 +57,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     // Show over lock screen: whether the app was in front when the screen went off.
     private long pausedAt;
-    private boolean leftApp, armed;
+    private boolean leftApp, armed, relit;
     private final BroadcastReceiver screenOff = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (Intent.ACTION_SCREEN_OFF.equals(i.getAction())) onScreenOff();
@@ -113,7 +115,14 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         handler.removeCallbacks(refront);
         hideSystemUi();
         lastTouch = SystemClock.elapsedRealtime();
-        exitIdle();
+        if (relit) {
+            // Back on screen after "Lock phone when idle": stay in idle mode over the lock screen.
+            relit = false;
+            setTurnOn(false);
+            enterIdle();
+        } else {
+            exitIdle();
+        }
         handler.removeCallbacks(tick);
         handler.removeCallbacks(poll);
         handler.post(tick);
@@ -282,7 +291,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
             playback.onTick();
             screen.onTick();
             applyShift();
-            if (settings.idleMode != AppSettings.IDLE_NOTHING && !idling && screen.idleAllowed()
+            if ((settings.idleMode != AppSettings.IDLE_NOTHING || settings.lockIdle) && !idling && screen.idleAllowed()
                     && SystemClock.elapsedRealtime() - lastTouch > settings.idleAfterMs()) enterIdle();
             handler.postDelayed(this, 1000);
         }
@@ -423,6 +432,42 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         idling = true;
         if (settings.dimsWhenIdle()) applyBrightness(true);
         if (settings.minimalWhenIdle()) setMinimal(true);
+        if (settings.lockIdle && settings.overLock) lockAndRelight();
+    }
+
+    /**
+     * Lock phone when idle: locks the phone (device admin, lock only), then lights the screen again
+     * with the app showing over the lock screen. Does nothing if the phone is already locked,
+     * so using the app over the lock screen never re-locks it in a loop.
+     */
+    private void lockAndRelight() {
+        KeyguardManager km = getSystemService(KeyguardManager.class);
+        DevicePolicyManager dpm = getSystemService(DevicePolicyManager.class);
+        if (km == null || dpm == null || km.isKeyguardLocked() || !LockAdmin.isActive(this)) return;
+        relit = true;
+        try { dpm.lockNow(); } catch (SecurityException e) { relit = false; return; }
+        handler.postDelayed(relight, 700);
+    }
+
+    @SuppressWarnings("deprecation")
+    private final Runnable relight = () -> {
+        if (!relit || isFinishing()) return;
+        setTurnOn(true);
+        PowerManager pm = getSystemService(PowerManager.class);
+        if (pm != null) {
+            PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                    | PowerManager.ACQUIRE_CAUSES_WAKEUP, "neon:relight");
+            wl.acquire(4000);
+        }
+        armed = true;
+        bringToFront();
+    };
+
+    @SuppressWarnings("deprecation")
+    private void setTurnOn(boolean on) {
+        if (Build.VERSION.SDK_INT >= 27) setTurnScreenOn(on);
+        if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
     }
 
     private void exitIdle() {
@@ -493,7 +538,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     }
 
     void applyKeepOn() {
-        if (settings.keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // Lock phone when idle keeps the screen on too: that's the point of it.
+        if (settings.keepOn || settings.lockIdle) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 

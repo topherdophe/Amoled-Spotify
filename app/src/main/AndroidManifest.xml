@@ -4,6 +4,9 @@
          USE_EXACT_ALARM covers Android 13+; SCHEDULE_EXACT_ALARM covers Android 12. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
+    <!-- Lock phone when idle: light the screen again after locking, so the app shows over the lock screen. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON"/>
 
     <!-- Lets the "Open Spotify on this phone" button find the Spotify app (Android 11+ package visibility). -->
     <queries>
@@ -35,5 +38,14 @@
             </intent-filter>
         </activity>
         <receiver android:name=".SleepReceiver" android:exported="false"/>
+        <receiver
+            android:name=".LockAdmin"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/device_admin"/>
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

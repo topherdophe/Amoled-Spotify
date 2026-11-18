@@ -30,7 +30,7 @@ final class AppSettings {
     int color1, color2;
     boolean gradient;
     int idleMode, idleChoice, brightNormal, brightDim;
-    boolean keepOn, showArt, pixelShift, overLock;
+    boolean keepOn, showArt, pixelShift, overLock, lockIdle;
     int clockStyle, clockSize, clockHours;
     boolean clockSeconds, clockDate;
 
@@ -38,6 +38,7 @@ final class AppSettings {
         prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
         keepOn = prefs.getBoolean("keepOn", true);
         overLock = prefs.getBoolean("overLock", true);
+        lockIdle = prefs.getBoolean("lockIdle", false);
         showArt = prefs.getBoolean("showArt", false);
         pixelShift = prefs.getBoolean("pixelShift", true);
         idleMode = clamp(prefs.getInt("idleMode", IDLE_MINIMAL), 0, IDLE_MODES.length - 1);
@@ -57,7 +58,7 @@ final class AppSettings {
 
     void save() {
         prefs.edit()
-                .putBoolean("keepOn", keepOn).putBoolean("overLock", overLock)
+                .putBoolean("keepOn", keepOn).putBoolean("overLock", overLock).putBoolean("lockIdle", lockIdle)
                 .putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
                 .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice)
                 .putInt("brightNormal", brightNormal).putInt("brightDim", brightDim)
