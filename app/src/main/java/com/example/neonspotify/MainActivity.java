@@ -234,15 +234,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             if (ticks++ % 30 == 0) updateBattery();
             updateProgressViews();
             if (sleepAt > 0 || sleepEndOfSong) updateDeviceLine();
-            if (pixelShift) {
-                // Burn-in protection: drift the whole UI a few dp every 30 s.
-                long step = System.currentTimeMillis() / SHIFT_MS;
-                shifter.setTranslationX(dpf((float) Math.sin(step * 0.7) * 6f));
-                shifter.setTranslationY(dpf((float) Math.cos(step * 1.3) * 6f));
-            } else {
-                shifter.setTranslationX(0);
-                shifter.setTranslationY(0);
-            }
+            applyShift();
             if (idleMode != 0 && !idling && screen == Screen.PLAYER
                     && SystemClock.elapsedRealtime() - lastTouch > IDLE_SECONDS[idleChoice] * 1000L) enterIdle();
             // Refresh right when a song should end: faster next-song display, queue auto-skip and sleep-after-song.
@@ -272,6 +264,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         setContentView(frame);
         shifter = vertical();
         applyShellPadding();
+        applyShift();
         frame.addView(shifter, new FrameLayout.LayoutParams(-1, -1));
 
         topBar = new LinearLayout(this);
@@ -294,6 +287,19 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         message.setPadding(dp(8), dp(4), dp(8), dp(4));
         shifter.addView(message, new LinearLayout.LayoutParams(-1, -2));
         updateBattery();
+    }
+
+    /** Burn-in protection: drift the whole UI a few dp every 30 s. Also called on rebuild so nothing jumps. */
+    private void applyShift() {
+        if (shifter == null) return;
+        if (pixelShift) {
+            long step = System.currentTimeMillis() / SHIFT_MS;
+            shifter.setTranslationX(dpf((float) Math.sin(step * 0.7) * 6f));
+            shifter.setTranslationY(dpf((float) Math.cos(step * 1.3) * 6f));
+        } else {
+            shifter.setTranslationX(0);
+            shifter.setTranslationY(0);
+        }
     }
 
     private void applyShellPadding() {
@@ -855,10 +861,14 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     private interface IntChoice { void pick(int value); }
     private interface Labeler { String label(int value); }
 
-    private void showSettings() {
+    private void showSettings() { showSettings(0, 0); }
+
+    /** scrollY / colourScrollX restore the page and colour-row positions after a colour change rebuilds it. */
+    private void showSettings(int scrollY, int colourScrollX) {
         clearContent(Screen.SETTINGS);
         heading("Settings");
         LinearLayout list = scrollList();
+        View page = (View) list.getParent();
 
         // Each setting is followed by a thin divider in a colour that complements the highlight colour.
         section(list, "Sleep timer");
@@ -868,13 +878,27 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         colourLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         colourLabel.setPadding(0, dp(20), 0, 0);
         list.addView(colourLabel, matchWrap());
+        HorizontalScrollView[] colorRow = new HorizontalScrollView[1];
         HorizontalScrollView colors = choices(COLOR_NAMES, colorIndex, i -> {
+            int y = page.getScrollY(), x = colorRow[0].getScrollX();
             colorIndex = i;
             saveSettings();
             applyColors();
             buildShell();
-            showSettings();
+            showSettings(y, x);
         });
+        colorRow[0] = colors;
+        if (scrollY > 0 || colourScrollX > 0) {
+            // Restore positions before the first frame is drawn, so the page doesn't visibly jump.
+            page.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    page.getViewTreeObserver().removeOnPreDrawListener(this);
+                    page.scrollTo(0, scrollY);
+                    colors.scrollTo(colourScrollX, 0);
+                    return true;
+                }
+            });
+        }
         LinearLayout chips = (LinearLayout) colors.getChildAt(0);
         for (int i = 0; i < chips.getChildCount(); i++) tint((TextView) chips.getChildAt(i), COLORS[i][0], COLORS[i][1]);
         setting(list, colors);
