@@ -122,7 +122,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
 
     // Settings
     private int colorIndex, accent, accent2, idleMode, idleChoice, brightNormal, brightDim;
-    private boolean keepOn, showArt, pixelShift;
+    private boolean keepOn, showArt, pixelShift, overLock;
 
     // Idle state
     private boolean idling, minimal, swallowing;
@@ -146,6 +146,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             w.setAttributes(lp);
         }
         applyKeepOn();
+        applyLockScreen();
         buildShell();
         if (spotify.hasClientId()) showPlayer(); else showSetup();
         if (saved == null) handleIntent(getIntent());
@@ -863,8 +864,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         section(list, "Sleep timer");
         setting(list, choices(SLEEP_LABELS, sleepChoice, this::setSleep));
 
-        section(list, "Appearance");
-        list.addView(label("Highlight colour"), matchWrap());
+        TextView colourLabel = label("Highlight colour");
+        colourLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        colourLabel.setPadding(0, dp(20), 0, 0);
+        list.addView(colourLabel, matchWrap());
         HorizontalScrollView colors = choices(COLOR_NAMES, colorIndex, i -> {
             colorIndex = i;
             saveSettings();
@@ -881,8 +884,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             if (on && !pendingArtUrl.isEmpty()) loadArt(pendingArtUrl);
         }));
 
-        section(list, "Screen");
         setting(list, switchRow("Keep screen awake", keepOn, on -> { keepOn = on; saveSettings(); applyKeepOn(); }));
+        setting(list, switchRow("Show over lock screen", overLock, on -> { overLock = on; saveSettings(); applyLockScreen(); }));
         list.addView(label("When idle"), matchWrap());
         setting(list, choices(IDLE_MODES, idleMode, i -> { idleMode = i; saveSettings(); }));
         list.addView(label("Idle after"), matchWrap());
@@ -974,6 +977,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
 
     private void loadSettings() {
         keepOn = settings.getBoolean("keepOn", true);
+        overLock = settings.getBoolean("overLock", true);
         showArt = settings.getBoolean("showArt", false);
         pixelShift = settings.getBoolean("pixelShift", true);
         idleMode = clamp(settings.getInt("idleMode", 2), 0, IDLE_MODES.length - 1);
@@ -985,7 +989,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     }
 
     private void saveSettings() {
-        settings.edit().putBoolean("keepOn", keepOn).putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
+        settings.edit().putBoolean("keepOn", keepOn).putBoolean("overLock", overLock).putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
                 .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice).putInt("brightNormal", brightNormal)
                 .putInt("brightDim", brightDim).putInt("color", colorIndex).apply();
     }
@@ -1061,6 +1065,17 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         if (dim) lp.screenBrightness = Math.max(0.01f, brightDim / 100f);
         else lp.screenBrightness = brightNormal == 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : brightNormal / 100f;
         getWindow().setAttributes(lp);
+    }
+
+    /**
+     * When on, the app stays visible over the lock screen if it was open when the phone locked.
+     * Anything that leaves the app (browser, Spotify) still asks the phone to be unlocked.
+     */
+    @SuppressWarnings("deprecation")
+    private void applyLockScreen() {
+        if (Build.VERSION.SDK_INT >= 27) setShowWhenLocked(overLock);
+        else if (overLock) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
     }
 
     private void applyKeepOn() {

@@ -17,6 +17,7 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
   - **Highlight colour**: 7 solid colours or 4 gradients.
   - **Show album art**.
   - **Keep screen awake**.
+  - **Show over lock screen**: if the app is open when the phone locks, it stays visible without unlocking.
   - **When idle**: nothing, dim, clock & song only, or both. Choose an idle time of 30 s, 1, 2 or 5 min.
   - **Normal and dimmed brightness** sliders. These change this app's window only, not your phone's brightness setting.
   - **Pixel shift**: burn-in protection.
