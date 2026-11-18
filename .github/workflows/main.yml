@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -6,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - 'claude/**'
 
 jobs:
   build:
@@ -31,56 +31,25 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Extract Android project
-        run: |
-          mkdir -p extracted
-          unzip -q NeonSpotifyController.zip -d extracted
-
-      - name: Configure Spotify Client ID
+      - name: Build APK
         env:
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          from xml.sax.saxutils import escape
-
-          client_id = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
-          if not client_id:
-              raise SystemExit("Missing SPOTIFY_CLIENT_ID repository variable")
-
-          files = list(Path("extracted").rglob("strings.xml"))
-          if len(files) != 1:
-              raise SystemExit("Expected exactly one strings.xml")
-
-          path = files[0]
-          content = path.read_text()
-          placeholder = "REPLACE_WITH_SPOTIFY_CLIENT_ID"
-
-          if placeholder not in content:
-              raise SystemExit("Client ID placeholder not found")
-
-          path.write_text(
-              content.replace(placeholder, escape(client_id))
-          )
-          print("Spotify Client ID configured")
-          PY
-
-      - name: Build Android APK
-        run: |
-          PROJECT=$(find extracted -name settings.gradle -printf '%h\n' | head -1)
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Android project not found"
+          if [ -z "$SPOTIFY_CLIENT_ID" ]; then
+            echo "::warning::SPOTIFY_CLIENT_ID repository variable is not set. The app will build but can't log in."
+          fi
+          if ! gradle assembleDebug --no-daemon --console=plain > build.log 2>&1; then
+            cat build.log
+            # Surface compiler errors as an annotation on the run summary.
+            msg=$(grep -E "error:|e: |What went wrong|Exception" -A2 build.log | head -40 | sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g')
+            echo "::error title=Gradle build failed::${msg}"
             exit 1
           fi
-
-          cd "$PROJECT"
-          gradle assembleDebug --no-daemon
+          tail -5 build.log
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Amoled-Spotify-APK
-          path: extracted/**/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
