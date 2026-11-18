@@ -1,0 +1,49 @@
+
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Extract Android project
+        run: |
+          mkdir -p extracted
+          unzip -q NeonSpotifyController.zip -d extracted
+          find extracted -maxdepth 3 -name settings.gradle.kts
+
+      - name: Build APK
+        run: |
+          PROJECT=$(find extracted -name settings.gradle.kts -printf '%h\n' | head -1)
+          if [ -z "$PROJECT" ]; then
+            echo "Android project not found"
+            exit 1
+          fi
+          cd "$PROJECT"
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minimalist-Black-APK
+          path: extracted/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          
