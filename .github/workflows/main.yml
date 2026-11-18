@@ -35,7 +35,36 @@ jobs:
         run: |
           mkdir -p extracted
           unzip -q NeonSpotifyController.zip -d extracted
-          find extracted -name settings.gradle
+
+      - name: Configure Spotify Client ID
+        env:
+          SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.sax.saxutils import escape
+
+          client_id = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
+          if not client_id:
+              raise SystemExit("Missing SPOTIFY_CLIENT_ID repository variable")
+
+          files = list(Path("extracted").rglob("strings.xml"))
+          if len(files) != 1:
+              raise SystemExit("Expected exactly one strings.xml")
+
+          path = files[0]
+          content = path.read_text()
+          placeholder = "REPLACE_WITH_SPOTIFY_CLIENT_ID"
+
+          if placeholder not in content:
+              raise SystemExit("Client ID placeholder not found")
+
+          path.write_text(
+              content.replace(placeholder, escape(client_id))
+          )
+          print("Spotify Client ID configured")
+          PY
 
       - name: Build Android APK
         run: |
@@ -52,6 +81,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Minimalist-Black-APK
+          name: Amoled-Spotify-APK
           path: extracted/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
