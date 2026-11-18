@@ -80,6 +80,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         handleIntent(intent);
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        // Re-applied every time, so it's in place before the phone next locks.
+        applyLockScreen();
+        applyKeepOn();
+    }
+
     @Override protected void onResume() {
         super.onResume();
         hideSystemUi();
@@ -402,7 +409,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     @SuppressWarnings("deprecation")
     void applyLockScreen() {
         if (Build.VERSION.SDK_INT >= 27) setShowWhenLocked(settings.overLock);
-        else if (settings.overLock) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        // The older window flag too: some phones only honour one of the two.
+        if (settings.overLock) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
     }
 
