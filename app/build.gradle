@@ -13,10 +13,10 @@ def hasSigningKey = keystorePath != null && new File(keystorePath).exists()
 def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '3').toInteger()
 
 android {
-    namespace 'com.example.neonspotify'
+    namespace 'com.topherdophe.neon'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.example.neonspotify'
+        applicationId 'com.topherdophe.neon'
         minSdk 26
         targetSdk 35
         versionCode buildNumber
@@ -40,6 +40,14 @@ android {
         }
     }
     buildFeatures { resValues true }
+    // Android's code checker. Errors fail the GitHub build; warnings are only reported.
+    lint {
+        abortOnError true
+        warningsAsErrors false
+        checkReleaseBuilds false
+        xmlReport true
+        htmlReport true
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

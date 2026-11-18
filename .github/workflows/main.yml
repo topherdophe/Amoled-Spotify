@@ -13,21 +13,21 @@ jobs:
 
     steps:
       - name: Download repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
@@ -62,6 +62,34 @@ jobs:
           tail -5 build.log
           rm -f "$RUNNER_TEMP/neon-release.p12"
 
+      - name: Check code (lint)
+        run: |
+          if gradle lintDebug --no-daemon --console=plain > lint.log 2>&1; then
+            tail -3 lint.log
+          else
+            tail -40 lint.log
+            failed=1
+          fi
+          REPORT=app/build/reports/lint-results-debug.xml
+          if [ -f "$REPORT" ]; then
+            # Each lint error becomes an annotation on the file and line; warnings are counted only.
+            python3 - "$REPORT" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          issues = ET.parse(sys.argv[1]).getroot().findall('issue')
+          errors = [i for i in issues if i.get('severity') in ('Error', 'Fatal')]
+          for i in errors:
+              loc = i.find('location')
+              f = l = ''
+              if loc is not None:
+                  f = loc.get('file', '').split('/Amoled-Spotify/')[-1]
+                  l = loc.get('line', '')
+              msg = (i.get('id', '') + ': ' + i.get('message', '')).replace('%', '%25').replace(chr(10), '%0A')
+              print(f"::error file={f},line={l},title=Lint::{msg}")
+          print(f"::notice title=Lint::{len(errors)} errors, {len(issues) - len(errors)} warnings")
+          PY
+          fi
+          [ -z "$failed" ]
+
       - name: Show signing certificate
         run: |
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
@@ -69,7 +97,7 @@ jobs:
           echo "::notice title=Signing certificate SHA-256::$SHA"
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Amoled-Spotify-APK
           path: app/build/outputs/apk/debug/*.apk

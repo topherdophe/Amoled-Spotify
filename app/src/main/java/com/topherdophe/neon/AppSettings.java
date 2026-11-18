@@ -1,0 +1,66 @@
+package com.topherdophe.neon;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+/** User preferences, plus the option lists shown on the Settings screen. */
+final class AppSettings {
+    // Highlight colours: solid colours first, then gradients (start, end).
+    static final String[] COLOR_NAMES = {"Neon", "Cyan", "Magenta", "Amber", "Red", "Violet", "White",
+            "Aurora", "Vapor", "Sunset", "Ocean"};
+    static final int[][] COLORS = {
+            {0xFF00FF00, 0xFF00FF00}, {0xFF00E5FF, 0xFF00E5FF}, {0xFFFF00FF, 0xFFFF00FF}, {0xFFFFB000, 0xFFFFB000},
+            {0xFFFF1744, 0xFFFF1744}, {0xFFB388FF, 0xFFB388FF}, {0xFFFFFFFF, 0xFFFFFFFF},
+            {0xFF00FF00, 0xFF00E5FF}, {0xFFFF00FF, 0xFF00E5FF}, {0xFFFFB000, 0xFFFF1744}, {0xFF2979FF, 0xFF00E5FF}};
+
+    static final int IDLE_NOTHING = 0, IDLE_DIM = 1, IDLE_MINIMAL = 2, IDLE_MINIMAL_DIM = 3;
+    static final String[] IDLE_MODES = {"Nothing", "Dim", "Clock & song", "Clock & song + dim"};
+    static final int[] IDLE_SECONDS = {30, 60, 120, 300};
+    static final String[] IDLE_LABELS = {"30 sec", "1 min", "2 min", "5 min"};
+
+    /** Minutes; -1 means "after the current song". */
+    static final int[] SLEEP_MINUTES = {0, 15, 30, 45, 60, 90, -1};
+    static final String[] SLEEP_LABELS = {"Off", "15 min", "30 min", "45 min", "60 min", "90 min", "End of song"};
+
+    private final SharedPreferences prefs;
+    int colorIndex, idleMode, idleChoice, brightNormal, brightDim;
+    boolean keepOn, showArt, pixelShift, overLock;
+
+    AppSettings(Context context) {
+        prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
+        keepOn = prefs.getBoolean("keepOn", true);
+        overLock = prefs.getBoolean("overLock", true);
+        showArt = prefs.getBoolean("showArt", false);
+        pixelShift = prefs.getBoolean("pixelShift", true);
+        idleMode = clamp(prefs.getInt("idleMode", IDLE_MINIMAL), 0, IDLE_MODES.length - 1);
+        idleChoice = clamp(prefs.getInt("idleChoice", 0), 0, IDLE_SECONDS.length - 1);
+        brightNormal = clamp(prefs.getInt("brightNormal", 0), 0, 100);
+        brightDim = clamp(prefs.getInt("brightDim", 5), 1, 100);
+        colorIndex = clamp(prefs.getInt("color", 0), 0, COLORS.length - 1);
+    }
+
+    void save() {
+        prefs.edit()
+                .putBoolean("keepOn", keepOn).putBoolean("overLock", overLock)
+                .putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
+                .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice)
+                .putInt("brightNormal", brightNormal).putInt("brightDim", brightDim)
+                .putInt("color", colorIndex)
+                .apply();
+    }
+
+    int accent() { return COLORS[colorIndex][0]; }
+    int accent2() { return COLORS[colorIndex][1]; }
+
+    boolean dimsWhenIdle() { return idleMode == IDLE_DIM || idleMode == IDLE_MINIMAL_DIM; }
+    boolean minimalWhenIdle() { return idleMode == IDLE_MINIMAL || idleMode == IDLE_MINIMAL_DIM; }
+    long idleAfterMs() { return IDLE_SECONDS[idleChoice] * 1000L; }
+
+    String lastDevice() { return prefs.getString("lastDevice", ""); }
+
+    void setLastDevice(String id) {
+        if (!id.isEmpty() && !id.equals(lastDevice())) prefs.edit().putString("lastDevice", id).apply();
+    }
+
+    static int clamp(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
+}

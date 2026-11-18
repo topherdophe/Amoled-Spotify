@@ -7,13 +7,13 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 - **Now playing**: large clock, optional album art, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
 - **Up next (♫)**: see the queue and tap a song to skip straight to it.
-  - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
+  - Swipe a song away (or long-press it) to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
 - **Search (⌕)**: tap a result to play it, or tap **+** to add it to the queue. **MORE** loads further pages of 10.
 - **Playlists (☷)**: open a playlist to play or shuffle it, tap a song to play from there, or tap **+** to queue a song.
   - Spotify only lets this app list the songs in playlists you own or collaborate on. Others can still be played or shuffled.
 - **Devices (◎)**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
 - **Settings (⚙)**:
-  - **Sleep timer**: 15–90 minutes, or end of the current song.
+  - **Sleep timer**: 15–90 minutes, or end of the current song. Timed sleeps use an Android alarm, so Spotify pauses on time even if the phone is asleep or the app is closed.
   - **Highlight colour**: 7 solid colours or 4 gradients.
   - **Show album art**.
   - **Keep screen awake**.
@@ -23,6 +23,7 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
   - **Pixel shift**: burn-in protection.
   - **Spotify account**: check the account, change the Client ID, disconnect.
 - **In-app setup**: paste your Spotify Client ID on first launch.
+- **Accessibility**: every button has a screen-reader label (TalkBack), and text follows the phone's font size. Symbol buttons and the clock keep a fixed size so they still fit with large fonts.
 
 ## Setup
 
@@ -32,6 +33,10 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 4. Install it, paste your Client ID on the setup screen, and tap **SAVE AND CONNECT**.
 
 Optional: add a repository variable `SPOTIFY_CLIENT_ID` to bake in a default Client ID. A Client ID typed in the app always wins.
+
+## Package name
+
+The app's package is `com.topherdophe.neon`. Builds before November 2026 used `com.example.neonspotify`, which Android treats as a different app: uninstall the old one, then enter your Client ID and log in once in the new one.
 
 ## Signing (installing updates over old versions)
 
@@ -45,6 +50,10 @@ Android only installs an update over an app signed with the same key. Add these 
 
 With these secrets set, every build uses the same key and installs over the previous one, keeping your login and settings. Without them, the build falls back to a throwaway key, and you'll need to uninstall before each update. Never commit the keystore, and keep a backup: if you lose it, you'll have to uninstall once more and switch to a new key.
 
+## Code checks
+
+Every GitHub build also runs Android lint. Lint errors fail the build and show up as annotations on the run, pointing at the file and line. Warnings are counted in a notice but don't fail the build. The full report is in `app/build/reports/` when building locally.
+
 ## Troubleshooting
 
 | Message | Meaning |
@@ -56,5 +65,5 @@ With these secrets set, every build uses the same key and installs over the prev
 ## Notes
 
 - Playback control requires Spotify Premium and a Spotify Connect device. Spotify doesn't allow remote volume control on phones, so the app has no volume control.
-- The sleep timer and queue auto-skip run inside the app. They're most reliable with **Keep screen awake** on.
-- Login uses Authorization Code with PKCE (no client secret). Tokens are stored in app-private storage.
+- Queue auto-skip and "sleep after this song" run inside the app, so they need it open. They're most reliable with **Keep screen awake** on.
+- Login uses Authorization Code with PKCE (no client secret). Tokens are encrypted with a key held in the Android Keystore, then saved in app-private storage.

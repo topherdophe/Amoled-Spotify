@@ -1,6 +1,7 @@
-package com.example.neonspotify;
+package com.topherdophe.neon;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -28,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Minimal Spotify Web API client: PKCE login, token storage and refresh, and JSON requests.
+ * Minimal Spotify Web API client: PKCE login, encrypted token storage and refresh, and JSON requests.
  * Uses only Android framework classes (no third-party libraries).
  *
  * Callback codes: HTTP status, or 0 = not connected, -1 = network error (body holds the message).
@@ -43,29 +44,32 @@ final class SpotifyClient {
     private static final String SCOPES = "user-read-playback-state user-modify-playback-state "
             + "user-read-currently-playing playlist-read-private playlist-read-collaborative";
 
-    private final Activity activity;
     private final Listener listener;
     private final SharedPreferences prefs;
-    private final String buildClientId;
+    private final TokenStore tokens;
     private volatile String clientId;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile boolean closed;
 
-    private volatile String accessToken, refreshToken;
+    private volatile String accessToken = "", refreshToken = "";
     private volatile long expiresAt;
     private volatile long rateLimitedUntil;
-    volatile String lastDiagnostic = "No requests yet";
 
-    SpotifyClient(Activity activity, String clientId, Listener listener) {
-        this.activity = activity;
+    /** listener may be null (the sleep-timer receiver has no screen to update). */
+    SpotifyClient(Context context, String buildClientId, Listener listener) {
         this.listener = listener;
-        buildClientId = clientId == null ? "" : clientId.trim();
-        // New prefs file name on purpose: logins saved by older builds are ignored.
-        prefs = activity.getSharedPreferences("spotify_session", Activity.MODE_PRIVATE);
+        String fromBuild = buildClientId == null ? "" : buildClientId.trim();
+        prefs = context.getApplicationContext().getSharedPreferences("spotify_session", Context.MODE_PRIVATE);
+        tokens = new TokenStore(prefs);
         // A Client ID typed in the app wins over the one baked into the build.
-        this.clientId = prefs.getString("client_id", buildClientId);
-        accessToken = prefs.getString("access", "");
-        refreshToken = prefs.getString("refresh", "");
+        clientId = prefs.getString("client_id", fromBuild);
+        loadTokens();
+    }
+
+    private synchronized void loadTokens() {
+        accessToken = tokens.get("access");
+        refreshToken = tokens.get("refresh");
         expiresAt = prefs.getLong("expiry", 0);
     }
 
@@ -82,9 +86,14 @@ final class SpotifyClient {
         clientId = clean;
         prefs.edit().putString("client_id", clean).apply();
     }
+
     boolean isConnected() { return !accessToken.isEmpty() || !refreshToken.isEmpty(); }
     boolean isRateLimited() { return System.currentTimeMillis() < rateLimitedUntil; }
-    void shutdown() { io.shutdownNow(); }
+
+    void shutdown() {
+        closed = true;
+        io.shutdownNow();
+    }
 
     String clientIdHint() {
         if (!hasClientId()) return "(not set)";
@@ -93,7 +102,7 @@ final class SpotifyClient {
 
     // ---------------------------------------------------------------- login
 
-    void login() throws Exception {
+    void login(Activity activity) throws Exception {
         byte[] bytes = new byte[48];
         new SecureRandom().nextBytes(bytes);
         String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -134,38 +143,56 @@ final class SpotifyClient {
                 saveToken(tokenPost("grant_type=authorization_code&code=" + enc(code)
                         + "&redirect_uri=" + enc(REDIRECT) + "&client_id=" + enc(clientId)
                         + "&code_verifier=" + enc(verifier)));
-                lastDiagnostic = "Login successful";
                 notifySession("Connected to Spotify");
             } catch (Exception e) {
-                lastDiagnostic = "Login failed: " + e.getMessage();
                 notifySession("Login failed: " + e.getMessage());
             }
         });
         return true;
     }
 
-    void clearSession() {
-        accessToken = ""; refreshToken = ""; expiresAt = 0;
-        prefs.edit().remove("access").remove("refresh").remove("expiry").apply();
+    synchronized void clearSession() {
+        accessToken = "";
+        refreshToken = "";
+        expiresAt = 0;
+        tokens.remove("access");
+        tokens.remove("refresh");
+        prefs.edit().remove("expiry").apply();
     }
 
     // ---------------------------------------------------------------- API requests
 
     void request(String method, String path, String json, Result cb) {
         io.execute(() -> {
-            String label = method + " " + path.replace(API, "").split("\\?")[0];
+            int code;
+            String body;
             try {
-                if (!ensureToken()) { deliver(cb, 0, ""); return; }
-                Response r = http(method, path, json);
-                if (r.code == 401 && !refreshToken.isEmpty() && refresh()) r = http(method, path, json);
-                if (r.code == 429) rateLimitedUntil = System.currentTimeMillis() + parseLong(r.retryAfter, 10) * 1000L;
-                lastDiagnostic = label + " → HTTP " + r.code + (r.code >= 400 ? ": " + shortError(r.body) : "");
-                deliver(cb, r.code, r.body);
+                Response r = send(method, path, json);
+                code = r.code;
+                body = r.body;
             } catch (Exception e) {
-                lastDiagnostic = label + " → network error: " + e.getMessage();
-                deliver(cb, -1, String.valueOf(e.getMessage()));
+                code = -1;
+                body = String.valueOf(e.getMessage());
             }
+            deliver(cb, code, body);
         });
+    }
+
+    /** Synchronous request for background work (e.g. the sleep-timer alarm). Returns the HTTP code, 0 or -1. */
+    int requestBlocking(String method, String path, String json) {
+        try {
+            return send(method, path, json).code;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private Response send(String method, String path, String json) throws IOException {
+        if (!ensureToken()) return new Response(0, "", null);
+        Response r = http(method, path, json);
+        if (r.code == 401 && refresh()) r = http(method, path, json);
+        if (r.code == 429) rateLimitedUntil = System.currentTimeMillis() + parseLong(r.retryAfter, 10) * 1000L;
+        return r;
     }
 
     /** Human-readable explanation of a failed request. */
@@ -202,13 +229,18 @@ final class SpotifyClient {
         return refresh();
     }
 
-    private boolean refresh() throws IOException {
+    private synchronized boolean refresh() throws IOException {
+        // Another part of the app (e.g. the sleep-timer alarm) may have refreshed already and rotated the
+        // refresh token, so pick up whatever is saved before asking Spotify for a new one.
+        long before = expiresAt;
+        loadTokens();
+        if (refreshToken.isEmpty()) return false;
+        if (expiresAt > before && System.currentTimeMillis() < expiresAt - 60_000) return true;
         try {
             saveToken(tokenPost("grant_type=refresh_token&refresh_token=" + enc(refreshToken) + "&client_id=" + enc(clientId)));
             return true;
         } catch (TokenRejected e) {
             clearSession();
-            lastDiagnostic = "Saved login rejected: " + e.getMessage();
             notifySession("Your Spotify login expired. Tap CONNECT.");
             return false;
         }
@@ -261,20 +293,22 @@ final class SpotifyClient {
         }
     }
 
-    private void saveToken(JSONObject t) {
+    private synchronized void saveToken(JSONObject t) {
         accessToken = t.optString("access_token", accessToken);
         String newRefresh = t.optString("refresh_token", "");
         if (!newRefresh.isEmpty()) refreshToken = newRefresh;
         expiresAt = System.currentTimeMillis() + t.optLong("expires_in", 3600) * 1000L;
-        prefs.edit().putString("access", accessToken).putString("refresh", refreshToken).putLong("expiry", expiresAt).apply();
+        tokens.put("access", accessToken);
+        tokens.put("refresh", refreshToken);
+        prefs.edit().putLong("expiry", expiresAt).apply();
     }
 
     private void deliver(Result cb, int code, String body) {
-        main.post(() -> { if (!activity.isFinishing() && !activity.isDestroyed()) cb.done(code, body); });
+        if (cb != null) main.post(() -> { if (!closed) cb.done(code, body); });
     }
 
     private void notifySession(String message) {
-        main.post(() -> { if (!activity.isFinishing() && !activity.isDestroyed()) listener.onSessionChanged(message); });
+        if (listener != null) main.post(() -> { if (!closed) listener.onSessionChanged(message); });
     }
 
     static String shortError(String body) {

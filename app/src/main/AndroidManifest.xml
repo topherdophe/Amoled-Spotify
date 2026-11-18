@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Sleep timer: an exact alarm so playback pauses on time even while the phone sleeps.
+         USE_EXACT_ALARM covers Android 13+; SCHEDULE_EXACT_ALARM covers Android 12. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
 
     <!-- Lets the "Open Spotify on this phone" button find the Spotify app (Android 11+ package visibility). -->
     <queries>
@@ -29,5 +33,6 @@
                 <data android:scheme="neonspotify" android:host="callback"/>
             </intent-filter>
         </activity>
+        <receiver android:name=".SleepReceiver" android:exported="false"/>
     </application>
 </manifest>
