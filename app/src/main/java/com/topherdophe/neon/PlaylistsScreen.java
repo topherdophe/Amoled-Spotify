@@ -15,7 +15,10 @@ final class PlaylistsScreen extends BaseScreen {
                 pl -> app.open(new PlaylistScreen(pl.id, pl.uri, pl.name)))));
         LinearLayout list = scrollList();
         backButton();
-        if (requireConnected(list)) page(list, "/me/playlists?limit=50");
+        if (!requireConnected(list)) return;
+        list.addView(ui.listRow("Recently played", "Your last 50 songs", 19,
+                () -> app.open(new RecentScreen().from(this)), null), Ui.matchWrap());
+        page(list, "/me/playlists?limit=50");
     }
 
     private void page(LinearLayout list, String path) {
@@ -26,14 +29,14 @@ final class PlaylistsScreen extends BaseScreen {
             try {
                 JSONObject page = new JSONObject(body);
                 JSONArray items = page.getJSONArray("items");
-                if (items.length() == 0 && list.getChildCount() == 0) note(list, "No playlists");
+                if (items.length() == 0 && list.getChildCount() <= 1) note(list, "No playlists");
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject pl = items.optJSONObject(i);
                     if (pl == null) continue;
                     String id = Json.str(pl, "id"), uri = Json.str(pl, "uri"), name = Json.str(pl, "name");
                     JSONObject owner = pl.optJSONObject("owner");
                     String by = owner == null ? "" : Json.str(owner, "display_name");
-                    list.addView(ui.listRow(name, by, 19, () -> app.open(new PlaylistScreen(id, uri, name)), null), Ui.matchWrap());
+                    list.addView(ui.listRow(name, by, 19, () -> app.open(new PlaylistScreen(id, uri, name).from(this)), null), Ui.matchWrap());
                 }
                 String next = Json.str(page, "next");
                 if (!next.isEmpty()) {

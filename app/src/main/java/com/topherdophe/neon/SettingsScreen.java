@@ -1,19 +1,22 @@
 package com.topherdophe.neon;
 
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
-/** Sleep timer, appearance, screen behaviour and the Spotify account. */
+/** Sleep timer, playback device, appearance, clock, screen behaviour, battery and the account link. */
 final class SettingsScreen extends BaseScreen {
     /** Page and colour-row scroll positions, restored after a colour change rebuilds the screen. */
     private final int scrollY, chipsX;
+    private TextView batteryRow;
 
     SettingsScreen() { this(0, 0); }
 
@@ -30,6 +33,9 @@ final class SettingsScreen extends BaseScreen {
 
         ui.section(list, "Sleep timer");
         ui.setting(list, ui.choices("Sleep timer", AppSettings.SLEEP_LABELS, app.sleepChoice(), app::setSleep));
+
+        String device = playback.hasPlayback && !playback.deviceName.isEmpty() ? playback.deviceName : "choose a device";
+        ui.setting(list, ui.action("Play on: " + device + "  ›", 16, () -> app.open(new DevicesScreen(null).from(this))));
 
         TextView colourLabel = ui.label("Highlight colour");
         colourLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -65,6 +71,17 @@ final class SettingsScreen extends BaseScreen {
             if (on) playback.loadArt();
         }));
 
+        ui.section(list, "Clock");
+        list.addView(ui.label("Style"), Ui.matchWrap());
+        ui.setting(list, ui.choices("Clock style", AppSettings.CLOCK_STYLES, s.clockStyle, i -> { s.clockStyle = i; s.save(); }));
+        list.addView(ui.label("Size"), Ui.matchWrap());
+        ui.setting(list, ui.choices("Clock size", AppSettings.CLOCK_SIZES, s.clockSize, i -> { s.clockSize = i; s.save(); }));
+        list.addView(ui.label("Hours"), Ui.matchWrap());
+        ui.setting(list, ui.choices("Clock hours", AppSettings.CLOCK_HOURS, s.clockHours, i -> { s.clockHours = i; s.save(); }));
+        ui.setting(list, ui.switchRow("Show seconds", s.clockSeconds, on -> { s.clockSeconds = on; s.save(); }));
+        ui.setting(list, ui.switchRow("Show date", s.clockDate, on -> { s.clockDate = on; s.save(); }));
+
+        ui.section(list, "Screen");
         ui.setting(list, ui.switchRow("Keep screen awake", s.keepOn, on -> { s.keepOn = on; s.save(); app.applyKeepOn(); }));
         ui.setting(list, ui.switchRow("Show over lock screen", s.overLock, on -> { s.overLock = on; s.save(); app.applyLockScreen(); }));
         list.addView(ui.label("When idle"), Ui.matchWrap());
@@ -82,35 +99,35 @@ final class SettingsScreen extends BaseScreen {
             app.applyShift();
         }));
 
-        ui.section(list, "Spotify account");
-        TextView account = ui.text("Client ID: " + spotify.clientIdHint() + "\n"
-                + (spotify.isConnected() ? "Connected" : "Not connected"), 14, false);
-        list.addView(account, Ui.matchWrap());
-        if (spotify.isConnected()) {
-            list.addView(ui.action("CHECK ACCOUNT", 15, () -> spotify.request("GET", "/me", null, (code, body) -> {
-                if (code != 200) { account.setText(spotify.explain(code, body)); return; }
-                try {
-                    JSONObject j = new JSONObject(body);
-                    String name = Json.str(j, "display_name");
-                    account.setText("Connected as " + (name.isEmpty() ? Json.str(j, "id") : name)
-                            + "\nClient ID: " + spotify.clientIdHint());
-                } catch (JSONException e) {
-                    account.setText("Account response unreadable");
-                }
-            })));
-        }
-        list.addView(ui.action("CHANGE CLIENT ID", 15, () -> app.open(new SetupScreen())));
-        if (spotify.isConnected()) {
-            list.addView(ui.action("DISCONNECT", 15, () -> {
-                app.forgetSession();
-                app.status("Disconnected");
-                app.open(new SettingsScreen());
-            }));
-        } else {
-            list.addView(ui.action("CONNECT TO SPOTIFY", 15, app::login));
-        }
+        batteryRow = ui.action("", 16, this::openBatterySettings);
+        updateBattery();
+        ui.setting(list, batteryRow);
+
+        ui.setting(list, ui.action("Account  ›", 17, () -> app.open(new AccountScreen())));
         backButton();
     }
 
-    @Override void onSessionChanged() { app.open(new SettingsScreen()); }
+    /** Coming back from Android's settings: show the new battery state. */
+    @Override void onResume() { updateBattery(); }
+
+    private void updateBattery() {
+        if (batteryRow == null) return;
+        PowerManager pm = app.getSystemService(PowerManager.class);
+        boolean free = pm != null && pm.isIgnoringBatteryOptimizations(app.getPackageName());
+        batteryRow.setText(free ? "Background activity: allowed" : "Background activity: limited  ›");
+        batteryRow.setAlpha(free ? .6f : 1f);
+        batteryRow.setContentDescription(free ? "Background activity allowed"
+                : "Background activity limited. Opens app settings: choose Battery, then allow background activity.");
+    }
+
+    /** Opens this app's page in Android settings, where Battery → Unrestricted / Allow background activity lives. */
+    private void openBatterySettings() {
+        app.status("Choose Battery, then Unrestricted (or Allow background activity)");
+        try {
+            app.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", app.getPackageName(), null)));
+        } catch (ActivityNotFoundException e) {
+            app.error("Couldn't open the app settings");
+        }
+    }
 }

@@ -7,15 +7,25 @@ import android.view.View;
 import android.view.ViewConfiguration;
 
 /**
- * Horizontal swipe removes a row; a tap without movement calls the row's click listener
+ * Horizontal swipe removes a row; holding calls its long-click listener; a tap without movement calls
+ * the row's click listener
  * (so screen readers, which click instead of swiping, get the same tap behaviour).
  * Vertical drags are left to the surrounding ScrollView.
  */
 final class SwipeDismiss implements View.OnTouchListener {
     private final Runnable onDismiss;
     private final int slop;
+    private final int longPress = ViewConfiguration.getLongPressTimeout();
     private float downX, downY;
-    private boolean swiping;
+    private boolean swiping, longPressed;
+    private View current;
+    private final Runnable longPressCheck = () -> {
+        if (current != null && !swiping) {
+            longPressed = true;
+            current.setPressed(false);
+            current.performLongClick();
+        }
+    };
 
     SwipeDismiss(Context context, Runnable onDismiss) {
         this.onDismiss = onDismiss;
@@ -30,9 +40,14 @@ final class SwipeDismiss implements View.OnTouchListener {
                 downX = e.getRawX();
                 downY = e.getRawY();
                 swiping = false;
+                longPressed = false;
+                current = v;
                 v.setPressed(true);
+                v.postDelayed(longPressCheck, longPress);
                 return true;
             case MotionEvent.ACTION_MOVE:
+                if (Math.abs(dx) > slop || Math.abs(dy) > slop) v.removeCallbacks(longPressCheck);
+                if (longPressed) return true;
                 if (!swiping && Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy)) {
                     swiping = true;
                     v.setPressed(false);
@@ -46,7 +61,9 @@ final class SwipeDismiss implements View.OnTouchListener {
                 }
                 return true;
             case MotionEvent.ACTION_UP:
+                v.removeCallbacks(longPressCheck);
                 v.setPressed(false);
+                if (longPressed) return true;
                 if (swiping) {
                     if (Math.abs(dx) > v.getWidth() / 3f) {
                         v.animate().translationX(Math.signum(dx) * v.getWidth()).alpha(0f).setDuration(180)
@@ -59,6 +76,7 @@ final class SwipeDismiss implements View.OnTouchListener {
                 }
                 return true;
             case MotionEvent.ACTION_CANCEL:
+                v.removeCallbacks(longPressCheck);
                 v.setPressed(false);
                 v.animate().translationX(0).alpha(1f).setDuration(180).start();
                 return true;

@@ -101,17 +101,65 @@ final class Library {
         }
     }
 
-    void addSong(Playlist playlist, String songUri, Done<Boolean> cb) {
+    /** Adds songs to a playlist, 100 at a time (Spotify's limit per request). */
+    void addSongs(Playlist playlist, List<String> uris, Done<Boolean> cb) {
+        addChunk(playlist.id, uris, 0, cb);
+    }
+
+    private void addChunk(String playlistId, List<String> uris, int from, Done<Boolean> cb) {
+        if (from >= uris.size()) { cb.done(true, null); return; }
+        int to = Math.min(uris.size(), from + 100);
         String json;
         try {
-            json = new JSONObject().put("uris", new JSONArray().put(songUri)).toString();
+            JSONArray a = new JSONArray();
+            for (String u : uris.subList(from, to)) a.put(u);
+            json = new JSONObject().put("uris", a).toString();
         } catch (JSONException e) {
             cb.done(null, "Couldn't build request");
             return;
         }
-        spotify.request("POST", "/playlists/" + SpotifyClient.enc(playlist.id) + "/items", json, (code, body) -> {
-            if (code >= 200 && code < 300) cb.done(true, null);
+        spotify.request("POST", "/playlists/" + SpotifyClient.enc(playlistId) + "/items", json, (code, body) -> {
+            if (code >= 200 && code < 300) addChunk(playlistId, uris, to, cb);
             else cb.done(null, spotify.explain(code, body));
+        });
+    }
+
+    /** Removes every copy of these songs from a playlist you own. */
+    void removeSongs(String playlistId, List<String> uris, Done<Boolean> cb) {
+        removeChunk(playlistId, uris, 0, "items", cb);
+    }
+
+    private void removeChunk(String playlistId, List<String> uris, int from, String key, Done<Boolean> cb) {
+        if (from >= uris.size()) { cb.done(true, null); return; }
+        int to = Math.min(uris.size(), from + 100);
+        String json;
+        try {
+            JSONArray a = new JSONArray();
+            for (String u : uris.subList(from, to)) a.put(new JSONObject().put("uri", u));
+            json = new JSONObject().put(key, a).toString();
+        } catch (JSONException e) {
+            cb.done(null, "Couldn't build request");
+            return;
+        }
+        spotify.request("DELETE", "/playlists/" + SpotifyClient.enc(playlistId) + "/items", json, (code, body) -> {
+            if (code >= 200 && code < 300) removeChunk(playlistId, uris, to, key, cb);
+            // Spotify renamed "tracks" to "items" in Feb 2026; try the old name if the new one is refused.
+            else if (code == 400 && "items".equals(key)) removeChunk(playlistId, uris, from, "tracks", cb);
+            else cb.done(null, spotify.explain(code, body));
+        });
+    }
+
+    /** Saves a song to Liked Songs. */
+    void saveToLiked(String uri, Done<Boolean> cb) {
+        spotify.request("PUT", "/me/library?uris=" + SpotifyClient.enc(uri), null, (code, body) -> {
+            if (code >= 200 && code < 300) { cb.done(true, null); return; }
+            if (code != 404) { cb.done(null, spotify.explain(code, body)); return; }
+            // Older form of the same request.
+            String id = uri.substring(uri.lastIndexOf(':') + 1);
+            spotify.request("PUT", "/me/tracks?ids=" + SpotifyClient.enc(id), null, (c2, b2) -> {
+                if (c2 >= 200 && c2 < 300) cb.done(true, null);
+                else cb.done(null, spotify.explain(c2, b2));
+            });
         });
     }
 }

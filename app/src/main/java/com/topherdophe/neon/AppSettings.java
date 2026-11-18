@@ -22,9 +22,16 @@ final class AppSettings {
     static final int[] SLEEP_MINUTES = {0, 15, 30, 45, 60, 90, -1};
     static final String[] SLEEP_LABELS = {"Off", "15 min", "30 min", "45 min", "60 min", "90 min", "End of song"};
 
+    static final String[] CLOCK_STYLES = {"Thin", "Regular", "Bold", "Mono"};
+    static final String[] CLOCK_SIZES = {"Small", "Medium", "Large"};
+    static final float[] CLOCK_SCALE = {.75f, 1f, 1.3f};
+    static final String[] CLOCK_HOURS = {"Phone setting", "12-hour", "24-hour"};
+
     private final SharedPreferences prefs;
     int colorIndex, idleMode, idleChoice, brightNormal, brightDim;
     boolean keepOn, showArt, pixelShift, overLock;
+    int clockStyle, clockSize, clockHours;
+    boolean clockSeconds, clockDate;
 
     AppSettings(Context context) {
         prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
@@ -37,6 +44,11 @@ final class AppSettings {
         brightNormal = clamp(prefs.getInt("brightNormal", 0), 0, 100);
         brightDim = clamp(prefs.getInt("brightDim", 5), 1, 100);
         colorIndex = clamp(prefs.getInt("color", 0), 0, COLORS.length - 1);
+        clockStyle = clamp(prefs.getInt("clockStyle", 0), 0, CLOCK_STYLES.length - 1);
+        clockSize = clamp(prefs.getInt("clockSize", 1), 0, CLOCK_SIZES.length - 1);
+        clockHours = clamp(prefs.getInt("clockHours", 0), 0, CLOCK_HOURS.length - 1);
+        clockSeconds = prefs.getBoolean("clockSeconds", false);
+        clockDate = prefs.getBoolean("clockDate", false);
     }
 
     void save() {
@@ -46,6 +58,8 @@ final class AppSettings {
                 .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice)
                 .putInt("brightNormal", brightNormal).putInt("brightDim", brightDim)
                 .putInt("color", colorIndex)
+                .putInt("clockStyle", clockStyle).putInt("clockSize", clockSize).putInt("clockHours", clockHours)
+                .putBoolean("clockSeconds", clockSeconds).putBoolean("clockDate", clockDate)
                 .apply();
     }
 

@@ -9,12 +9,18 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** The pop-ups behind the "+" button: song options, choose a playlist, and name a new playlist. */
+import java.util.Collections;
+import java.util.List;
+
+/** The pop-ups behind the "+" button: song options, choose a playlist, name a playlist, confirm. */
 final class SongMenu {
     private SongMenu() { }
 
-    /** Add to queue / Add to playlist / Play artist radio, for one song. */
-    static void show(MainActivity app, JSONObject track) {
+    /**
+     * Options for one song. For the song that's playing now, "Add to queue" is left out and
+     * artist radio keeps the song playing instead of restarting it.
+     */
+    static void show(MainActivity app, JSONObject track, boolean nowPlaying) {
         Ui ui = app.ui;
         String uri = Json.str(track, "uri"), name = Json.str(track, "name");
         JSONArray artists = track.optJSONArray("artists");
@@ -22,32 +28,42 @@ final class SongMenu {
         String artist = firstArtist != null ? Json.str(firstArtist, "name") : "";
 
         Ui.Popup p = ui.popup(name);
-        p.list.addView(ui.action("Add to queue", 17, () -> {
-            p.dismiss();
-            app.playback.addToQueue(uri, name);
-        }), Ui.matchWrap());
+        if (!nowPlaying) {
+            p.list.addView(ui.action("Add to queue", 17, () -> {
+                p.dismiss();
+                app.playback.addToQueue(uri, name);
+            }), Ui.matchWrap());
+        }
         p.list.addView(ui.action("Add to playlist", 17, () -> {
             p.dismiss();
-            pickPlaylist(app, uri, name);
+            pickPlaylist(app, Collections.singletonList(uri), name);
         }), Ui.matchWrap());
-        if (!artist.isEmpty()) {
-            TextView radio = ui.action("Play artist radio", 17, () -> {
+        if (uri.startsWith("spotify:track:")) {
+            p.list.addView(ui.action("Save to Liked Songs", 17, () -> {
                 p.dismiss();
-                app.playback.artistRadio(uri, artist);
-            });
-            p.list.addView(radio, Ui.matchWrap());
+                app.library.saveToLiked(uri, (ok, err) -> {
+                    if (ok != null) app.status("Saved " + name + " to Liked Songs");
+                    else app.error(err);
+                });
+            }), Ui.matchWrap());
+        }
+        if (!artist.isEmpty()) {
+            p.list.addView(ui.action("Play artist radio", 17, () -> {
+                p.dismiss();
+                app.playback.artistRadio(uri, artist, nowPlaying);
+            }), Ui.matchWrap());
         }
         p.list.addView(cancel(ui, p), Ui.matchWrap());
         p.show();
     }
 
-    /** Lists the playlists you can add to, with "New playlist" first. */
-    static void pickPlaylist(MainActivity app, String songUri, String songName) {
+    /** Lists the playlists you can add to, with "New playlist" first. label names the songs in messages. */
+    static void pickPlaylist(MainActivity app, List<String> uris, String label) {
         Ui ui = app.ui;
         Ui.Popup p = ui.popup("Add to playlist");
         p.list.addView(ui.action("+  NEW PLAYLIST", 16, () -> {
             p.dismiss();
-            newPlaylist(app, created -> add(app, created, songUri, songName));
+            newPlaylist(app, created -> add(app, created, uris, label));
         }), Ui.matchWrap());
         TextView loading = ui.text("Loading…", 15, false);
         p.list.addView(loading, Ui.matchWrap());
@@ -65,16 +81,16 @@ final class SongMenu {
             for (Library.Playlist pl : lists) {
                 LinearLayout row = ui.listRow(pl.name, "", 17, () -> {
                     p.dismiss();
-                    add(app, pl, songUri, songName);
+                    add(app, pl, uris, label);
                 }, null);
                 p.list.addView(row, p.list.indexOfChild(cancel), Ui.matchWrap());
             }
         });
     }
 
-    private static void add(MainActivity app, Library.Playlist pl, String songUri, String songName) {
-        app.library.addSong(pl, songUri, (ok, err) -> {
-            if (ok != null) app.status("Added " + songName + " to " + pl.name);
+    private static void add(MainActivity app, Library.Playlist pl, List<String> uris, String label) {
+        app.library.addSongs(pl, uris, (ok, err) -> {
+            if (ok != null) app.status("Added " + label + " to " + pl.name);
             else app.error(err);
         });
     }
@@ -111,6 +127,23 @@ final class SongMenu {
         }
         p.show();
         name.requestFocus();
+    }
+
+    /** A yes/no pop-up. onCancel (may be null) also runs if the pop-up is closed any other way. */
+    static void confirm(MainActivity app, String question, String yesLabel, Runnable onYes, Runnable onCancel) {
+        Ui ui = app.ui;
+        Ui.Popup p = ui.popup(question);
+        boolean[] answered = {false};
+        p.list.addView(ui.action(yesLabel, 17, () -> {
+            answered[0] = true;
+            p.dismiss();
+            onYes.run();
+        }), Ui.matchWrap());
+        p.list.addView(cancel(ui, p), Ui.matchWrap());
+        p.dialog.setOnDismissListener(d -> {
+            if (!answered[0] && onCancel != null) onCancel.run();
+        });
+        p.show();
     }
 
     private static TextView cancel(Ui ui, Ui.Popup p) {

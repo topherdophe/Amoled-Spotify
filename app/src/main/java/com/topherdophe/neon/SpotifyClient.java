@@ -43,7 +43,8 @@ final class SpotifyClient {
     private static final String TOKEN_URL = "https://accounts.spotify.com/api/token";
     private static final String SCOPES = "user-read-playback-state user-modify-playback-state "
             + "user-read-currently-playing playlist-read-private playlist-read-collaborative "
-            + "playlist-modify-private playlist-modify-public";
+            + "playlist-modify-private playlist-modify-public "
+            + "user-read-recently-played user-library-read user-library-modify";
 
     private final Listener listener;
     private final SharedPreferences prefs;
@@ -208,7 +209,7 @@ final class SpotifyClient {
         if (code == 403 && lower.contains("scope"))
             return "Spotify needs new permissions for this. Go to Settings → Disconnect, then connect again.";
         if (code == 403 && lower.contains("premium")) return "Spotify Premium is required for playback control.";
-        if (code == 404) return "No active playback device. Tap ◎ to choose one.";
+        if (code == 404) return "No active playback device. Choose one in Settings → Play on.";
         if (code == 429) return "Spotify rate limit reached. Slowing down…";
         return "Spotify HTTP " + code + ": " + msg;
     }

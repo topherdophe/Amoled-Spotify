@@ -19,7 +19,7 @@ final class DevicesScreen extends BaseScreen {
         if (note != null) content.addView(ui.text(note, 15, false), Ui.matchWrap());
         LinearLayout list = scrollList();
         content.addView(ui.action("OPEN SPOTIFY ON THIS PHONE", 15, app::openSpotifyApp));
-        content.addView(ui.action("REFRESH", 15, () -> app.open(new DevicesScreen(null))));
+        content.addView(ui.action("REFRESH", 15, () -> app.open(new DevicesScreen(null).from(returnTo))));
         backButton();
         if (!requireConnected(list)) return;
         TextView loading = loading(list, "Loading…");

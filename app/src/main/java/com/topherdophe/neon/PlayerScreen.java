@@ -18,7 +18,8 @@ import java.util.Locale;
 
 /** Clock, song, progress and playback controls. */
 final class PlayerScreen extends BaseScreen {
-    private TextView clock, title, artist, device, elapsed, duration, play, shuffleBtn, repeatBtn;
+    private TextView clock, date, title, artist, device, elapsed, duration, play, shuffleBtn, repeatBtn, plus;
+    private View plusSpacer;
     private SeekBar progressBar;
     private ImageView art;
     private View ctrlColumn;
@@ -28,6 +29,15 @@ final class PlayerScreen extends BaseScreen {
     @Override boolean rebuildOnRotate() { return true; }
     @Override boolean idleAllowed() { return true; }
     @Override boolean wantsFastPolling() { return playback.isPlaying; }
+    @Override boolean swipeControls() { return true; }
+
+    @Override boolean blocksSwipe(float rawX, float rawY) {
+        if (progressBar == null || progressBar.getVisibility() != View.VISIBLE) return false;
+        android.graphics.Rect r = new android.graphics.Rect();
+        if (!progressBar.getGlobalVisibleRect(r)) return false;
+        r.inset(0, -ui.dp(12)); // a little extra room above and below the thin bar
+        return r.contains((int) rawX, (int) rawY);
+    }
 
     @Override void build() {
         ScrollView scroll = new ScrollView(app);
@@ -57,10 +67,16 @@ final class PlayerScreen extends BaseScreen {
             p.addView(ctrl, Ui.matchWrap());
         }
 
-        clock = ui.text("--:--", 16, false);
-        clock.setTypeface(Typeface.create("sans-serif-thin", Typeface.NORMAL));
+        clock = Ui.oneLine(ui.text("--:--", 16, false));
+        clock.setTypeface(clockTypeface());
         Ui.fixedSize(clock, clockSize());
         info.addView(clock, Ui.matchWrap());
+        date = ui.text("", 18, false);
+        date.setAlpha(.7f);
+        date.setVisibility(settings.clockDate ? View.VISIBLE : View.GONE);
+        info.addView(date, Ui.matchWrap());
+        // Re-fit once the real width is known.
+        clock.post(() -> { if (clock != null) Ui.fixedSize(clock, clockSize()); });
 
         art = new ImageView(app);
         art.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -77,8 +93,19 @@ final class PlayerScreen extends BaseScreen {
         artLp.bottomMargin = ui.dp(12);
         info.addView(art, artLp);
 
+        // Title with a + (song menu) on the right; an equal spacer on the left keeps the title centred.
+        LinearLayout titleRow = new LinearLayout(app);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        plusSpacer = new View(app);
+        titleRow.addView(plusSpacer, new LinearLayout.LayoutParams(ui.dp(48), 1));
         title = Ui.oneLine(ui.text("", 26, true));
-        info.addView(title, Ui.matchWrap());
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        plus = ui.glyph("+", 30, "Options for this song", () -> {
+            if (playback.currentItem != null) SongMenu.show(app, playback.currentItem, true);
+            else app.status("Nothing playing");
+        });
+        titleRow.addView(plus, new LinearLayout.LayoutParams(ui.dp(48), -2));
+        info.addView(titleRow, Ui.matchWrap());
         artist = Ui.oneLine(ui.text("", 19, false));
         artist.setAlpha(.75f);
         info.addView(artist, Ui.matchWrap());
@@ -136,8 +163,26 @@ final class PlayerScreen extends BaseScreen {
 
     private float clockSize() {
         boolean landscape = app.isLandscape();
-        if (minimal) return landscape ? 110 : 96;
-        return landscape ? 72 : 64;
+        float base = minimal ? (landscape ? 110 : 96) : (landscape ? 72 : 64);
+        float size = base * AppSettings.CLOCK_SCALE[settings.clockSize];
+        // Shrink to fit the width (e.g. large size with seconds on a narrow phone).
+        int width = clock != null && clock.getWidth() > 0 ? clock.getWidth()
+                : app.getResources().getDisplayMetrics().widthPixels / (landscape ? 2 : 1) - ui.dp(48);
+        android.graphics.Paint paint = new android.graphics.Paint();
+        paint.setTypeface(clockTypeface());
+        paint.setTextSize(ui.dpf(size));
+        float textWidth = paint.measureText(settings.clockSeconds ? "00:00:00" : "00:00");
+        if (textWidth > width * .95f) size *= width * .95f / textWidth;
+        return size;
+    }
+
+    private Typeface clockTypeface() {
+        switch (settings.clockStyle) {
+            case 1: return Typeface.create("sans-serif", Typeface.NORMAL);
+            case 2: return Typeface.create("sans-serif", Typeface.BOLD);
+            case 3: return Typeface.create("monospace", Typeface.NORMAL);
+            default: return Typeface.create("sans-serif-thin", Typeface.NORMAL);
+        }
     }
 
     @Override void onTick() {
@@ -156,7 +201,7 @@ final class PlayerScreen extends BaseScreen {
             artist.setText("");
         } else if (!pb.hasPlayback) {
             title.setText("Nothing playing");
-            artist.setText("Tap ◎ to choose a device");
+            artist.setText("Choose a device in Settings → Play on");
         } else {
             title.setText(pb.trackName);
             artist.setText(pb.artistName);
@@ -178,8 +223,14 @@ final class PlayerScreen extends BaseScreen {
 
     private void updateClock() {
         if (clock == null) return;
-        String pattern = DateFormat.is24HourFormat(app) ? "HH:mm" : "h:mm";
-        clock.setText(new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date()));
+        boolean h24 = settings.clockHours == 0 ? DateFormat.is24HourFormat(app) : settings.clockHours == 2;
+        String pattern = (h24 ? "HH:mm" : "h:mm") + (settings.clockSeconds ? ":ss" : "");
+        Date now = new Date();
+        clock.setText(new SimpleDateFormat(pattern, Locale.getDefault()).format(now));
+        if (settings.clockDate) {
+            String datePattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), "EEEEdMMMM");
+            date.setText(new SimpleDateFormat(datePattern, Locale.getDefault()).format(now));
+        }
     }
 
     private void updateDeviceLine() {
@@ -220,6 +271,7 @@ final class PlayerScreen extends BaseScreen {
         int vis = m ? View.GONE : View.VISIBLE;
         if (ctrlColumn != null) ctrlColumn.setVisibility(vis);
         if (device != null) device.setVisibility(vis);
+        if (plus != null) { plus.setVisibility(vis); plusSpacer.setVisibility(vis); }
         if (clock != null) Ui.fixedSize(clock, clockSize());
         updateArt();
     }

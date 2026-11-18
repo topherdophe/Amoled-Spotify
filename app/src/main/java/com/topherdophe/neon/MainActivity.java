@@ -43,6 +43,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     // Idle state
     private boolean idling, minimal, swallowing;
+
+    // Player gestures: swipe right = next, swipe left = previous, two-finger swipe down = play/pause.
+    private float downX, downY, twoFingerStartY;
+    private boolean gesture, twoFinger, gestureDone, onSeekBar;
     private long lastTouch = SystemClock.elapsedRealtime();
     private int ticks;
 
@@ -85,6 +89,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         handler.removeCallbacks(poll);
         handler.post(tick);
         handler.post(poll);
+        if (screen != null) screen.onResume();
     }
 
     @Override protected void onPause() {
@@ -115,21 +120,82 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed() {
+        if (screen.handleBack()) return;
         BaseScreen back = screen.back();
         if (back != null) open(back);
         else super.onBackPressed();
     }
 
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == Voice.REQUEST) Voice.onResult(this, resultCode, data);
+    }
+
+    /**
+     * On an idle screen nothing reaches the buttons: a tap only wakes it, so it can't press one by accident.
+     * On the player (idle or not) swipes control playback; see {@link BaseScreen#swipeControls()}.
+     */
     @Override public boolean dispatchTouchEvent(MotionEvent ev) {
         lastTouch = SystemClock.elapsedRealtime();
         int a = ev.getActionMasked();
-        // The first touch on an idle screen only wakes it, so it can't press a button by accident.
-        if (a == MotionEvent.ACTION_DOWN && idling) { exitIdle(); swallowing = true; }
-        if (swallowing) {
-            if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) swallowing = false;
-            return true;
+        boolean swipes = screen != null && screen.swipeControls();
+        if (a == MotionEvent.ACTION_DOWN) {
+            downX = ev.getRawX();
+            downY = ev.getRawY();
+            gesture = twoFinger = gestureDone = false;
+            onSeekBar = swipes && screen.blocksSwipe(downX, downY);
+            swallowing = idling;
         }
+        if (swipes && !onSeekBar) trackGesture(ev, a);
+        if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+            boolean wasGesture = gesture, wasIdle = swallowing;
+            gesture = twoFinger = swallowing = false;
+            if (wasIdle && !wasGesture && a == MotionEvent.ACTION_UP) exitIdle();
+            if (wasIdle || wasGesture) return true;
+            return super.dispatchTouchEvent(ev);
+        }
+        if (swallowing || gesture) return true;
         return super.dispatchTouchEvent(ev);
+    }
+
+    private void trackGesture(MotionEvent ev, int a) {
+        if (a == MotionEvent.ACTION_POINTER_DOWN && ev.getPointerCount() == 2 && !gestureDone) {
+            startGesture(ev);
+            twoFinger = true;
+            twoFingerStartY = averageY(ev);
+        } else if (a == MotionEvent.ACTION_MOVE) {
+            float dx = ev.getRawX() - downX, dy = ev.getRawY() - downY;
+            if (!gesture && ev.getPointerCount() == 1 && Math.abs(dx) > ui.dp(24) && Math.abs(dx) > 1.5f * Math.abs(dy)) {
+                startGesture(ev);
+            } else if (twoFinger && !gestureDone && averageY(ev) - twoFingerStartY > ui.dp(80)) {
+                gestureDone = true;
+                status(playback.isPlaying ? "Paused" : "Playing");
+                playback.togglePlay();
+            }
+        } else if (a == MotionEvent.ACTION_UP && gesture && !twoFinger && !gestureDone) {
+            float dx = ev.getRawX() - downX;
+            if (Math.abs(dx) > ui.dp(80)) {
+                gestureDone = true;
+                if (dx > 0) { status("Next song"); playback.next(); }
+                else { status("Previous song"); playback.previous(); }
+            }
+        }
+    }
+
+    /** A swipe has started: buttons under the finger must not also see a tap. */
+    private void startGesture(MotionEvent ev) {
+        gesture = true;
+        if (swallowing) return; // nothing below saw the touch start
+        MotionEvent cancel = MotionEvent.obtain(ev);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        super.dispatchTouchEvent(cancel);
+        cancel.recycle();
+    }
+
+    private static float averageY(MotionEvent ev) {
+        float sum = 0;
+        for (int i = 0; i < ev.getPointerCount(); i++) sum += ev.getY(i);
+        return sum / ev.getPointerCount();
     }
 
     @Override public void onSessionChanged(String msg) {
@@ -162,7 +228,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     }
 
     @Override public void showPlayer() { open(new PlayerScreen()); }
-    @Override public void showDevices(String note) { open(new DevicesScreen(note)); }
+    @Override public void showDevices(String note) { open(new DevicesScreen(note).from(screen)); }
 
     /** Rebuilds everything (e.g. after a colour change) and then shows the given screen. */
     void rebuildShell(BaseScreen next) {
@@ -211,7 +277,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         battery = ui.text("--%", 16, false);
         topBar.addView(battery);
         topBar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        topBar.addView(ui.icon("◎", "Devices", () -> showDevices(null)));
+        topBar.addView(ui.imageIcon(R.drawable.ic_mic, "Voice: say a song or a command", () -> Voice.listen(this)));
         topBar.addView(ui.icon("♫︎", "Up next", () -> open(new QueueScreen())));
         topBar.addView(ui.icon("⌕", "Search", () -> open(new SearchScreen())));
         topBar.addView(ui.icon("☷", "Playlists", () -> open(new PlaylistsScreen())));

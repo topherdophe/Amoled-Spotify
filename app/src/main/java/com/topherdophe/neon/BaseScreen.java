@@ -27,8 +27,32 @@ abstract class BaseScreen {
     void onTick() { }
     void onSessionChanged() { }
 
+    /** The screen that opened this one, if back should return there. */
+    BaseScreen returnTo;
+
+    /** Back (and the BACK button) returns to the given screen. */
+    @SuppressWarnings("unchecked")
+    <T extends BaseScreen> T from(BaseScreen previous) {
+        returnTo = previous;
+        return (T) this;
+    }
+
     /** Where the back button goes; null leaves the app. */
-    BaseScreen back() { return new PlayerScreen(); }
+    BaseScreen back() { return returnTo != null ? returnTo : new PlayerScreen(); }
+
+    /** Lets a screen use back for itself first (e.g. to end a selection). Returns true if it did. */
+    boolean handleBack() { return selection != null && selection.cancel(); }
+
+    /** Multi-select for this screen's song list, if it has one. */
+    Selection selection;
+
+    void onResume() { }
+
+    /** Whether swipes on this screen control playback (see MainActivity.dispatchTouchEvent). */
+    boolean swipeControls() { return false; }
+
+    /** True if a swipe starting here (screen coordinates) belongs to a control instead, e.g. the seek bar. */
+    boolean blocksSwipe(float rawX, float rawY) { return false; }
 
     /** Whether this screen rebuilds itself on rotation (so it can switch layout). */
     boolean rebuildOnRotate() { return false; }
@@ -46,7 +70,11 @@ abstract class BaseScreen {
 
     LinearLayout scrollList() { return ui.scrollList(content); }
 
-    void backButton() { content.addView(ui.action("BACK", 17, app::goBack)); }
+    void backButton() {
+        content.addView(ui.action("BACK", 17, () -> {
+            if (!handleBack()) app.goBack();
+        }));
+    }
 
     void hint(String s) {
         android.widget.TextView hint = ui.text(s, 13, false);

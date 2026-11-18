@@ -45,6 +45,8 @@ final class Playback {
 
     boolean hasPlayback, isPlaying, shuffle;
     String repeat = "off", trackName = "", artistName = "", deviceName = "", trackUri = "";
+    /** The full song (or episode) that's playing, for the song menu; null if nothing. */
+    JSONObject currentItem;
     long progressMs, durationMs, progressAt;
     private String endRefreshFor = "";
 
@@ -140,6 +142,7 @@ final class Playback {
             settings.setLastDevice(Json.str(dev, "id"));
         }
         JSONObject item = j.optJSONObject("item");
+        currentItem = item;
         if (item == null) { trackName = "Unknown item"; artistName = ""; durationMs = 0; trackUri = ""; return; }
         trackName = Json.str(item, "name");
         trackUri = Json.str(item, "uri");
@@ -197,6 +200,12 @@ final class Playback {
 
     void previous() { command("POST", "/me/player/previous", null); }
     void next() { command("POST", "/me/player/next", null); }
+
+    void setShuffle(boolean on) {
+        shuffle = on;
+        host.onPlaybackChanged();
+        command("PUT", "/me/player/shuffle?state=" + on, null);
+    }
 
     void toggleShuffle() {
         shuffle = !shuffle;
@@ -305,7 +314,7 @@ final class Playback {
      * Spotify closed its recommendations API to new apps in 2024, so true song radio isn't possible.
      * This plays the song, then queues a shuffled mix of other songs by the same artist.
      */
-    void artistRadio(String songUri, String artist) {
+    void artistRadio(String songUri, String artist, boolean alreadyPlaying) {
         String play;
         try {
             play = new JSONObject().put("uris", new JSONArray().put(songUri)).toString();
@@ -314,7 +323,7 @@ final class Playback {
         }
         host.showPlayer();
         host.status("Starting " + artist + " radio…");
-        command("PUT", "/me/player/play", play, true, () -> {
+        Runnable queueMix = () -> {
             String q = "artist:\"" + artist.replace("\"", "") + "\"";
             spotify.request("GET", "/search?type=track&limit=10&q=" + Uri.encode(q), null, (code, body) -> {
                 if (code != 200) { host.error(spotify.explain(code, body)); return; }
@@ -330,23 +339,50 @@ final class Playback {
                     return;
                 }
                 Collections.shuffle(uris);
-                queueAll(uris, 0, artist);
+                queueAll(uris, 0, uris.isEmpty() ? "No other songs by " + artist + " found"
+                        : artist + " radio: " + uris.size() + " more songs queued");
             });
-        });
+        };
+        if (alreadyPlaying) queueMix.run();
+        else command("PUT", "/me/player/play", play, true, queueMix);
+    }
+
+    /** Adds several songs to the queue, then shows doneMessage. */
+    void queueMany(List<String> uris, String doneMessage) {
+        host.status("Adding to queue…");
+        queueAll(new ArrayList<>(uris), 0, doneMessage);
     }
 
     /** Adds songs to the queue one at a time, so they arrive in order. */
-    private void queueAll(List<String> uris, int index, String artist) {
+    private void queueAll(List<String> uris, int index, String doneMessage) {
         if (closed) return;
-        if (index >= uris.size()) {
-            host.status(uris.isEmpty() ? "No other songs by " + artist + " found"
-                    : artist + " radio: " + uris.size() + " more songs queued");
-            return;
-        }
+        if (index >= uris.size()) { host.status(doneMessage); return; }
         spotify.request("POST", "/me/player/queue?uri=" + SpotifyClient.enc(uris.get(index)), null, (code, body) -> {
             if (code < 200 || code >= 300) { host.error(spotify.explain(code, body)); return; }
             skipUris.remove(uris.get(index));
-            handler.postDelayed(() -> queueAll(uris, index + 1, artist), 250);
+            handler.postDelayed(() -> queueAll(uris, index + 1, doneMessage), 250);
+        });
+    }
+
+    /**
+     * Voice commands: finds the best match for query and plays it (or, for a song, adds it to the queue).
+     * type is track, album, artist or playlist.
+     */
+    void playSearch(String type, String query, boolean queueOnly) {
+        host.status("Looking for " + query + "…");
+        spotify.request("GET", "/search?type=" + type + "&limit=1&q=" + Uri.encode(query), null, (code, body) -> {
+            if (code != 200) { host.error(spotify.explain(code, body)); return; }
+            JSONObject first = null;
+            try {
+                JSONArray items = new JSONObject(body).getJSONObject(type + "s").getJSONArray("items");
+                for (int i = 0; i < items.length() && first == null; i++) first = items.optJSONObject(i);
+            } catch (JSONException ignored) { }
+            if (first == null) { host.status("Nothing found for \u201c" + query + "\u201d"); return; }
+            String uri = Json.str(first, "uri"), name = Json.str(first, "name");
+            if (queueOnly) { addToQueue(uri, name); return; }
+            if ("track".equals(type)) playTrack(uri);
+            else playContext(uri);
+            host.status("Playing " + name);
         });
     }
 

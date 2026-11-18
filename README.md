@@ -4,28 +4,37 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 
 ## Features
 
-- **Now playing**: large clock, optional album art, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
+- **Now playing**: large clock, optional album art and date, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
+  - **Swipe right** to skip, **swipe left** to go back, **two-finger swipe down** to play or pause. Swipes also work in clock-only idle mode without waking the screen.
+  - **+** next to the song opens Add to playlist, Save to Liked Songs and Play artist radio.
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
+- **Voice (mic)**: say a song to search for it, or a command: *pause*, *play*, *skip*, *back*, *shuffle on/off*, *play* + song, *play playlist / album / artist* + name, *queue* + song.
 - **Up next (♫)**: see the queue and tap a song to skip straight to it.
   - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
-- **Search (⌕)**: tap a result to play it. **MORE** loads further pages of 10.
-- **Song menu (+)**: next to songs in search results and playlists. It has three options:
+- **Search (⌕)**: songs, artists, albums or playlists. **MORE** loads further pages of 10.
+  - An artist page has play and shuffle, their songs and their albums. Album and playlist pages play from any song.
+- **Song menu (+)**: next to songs everywhere:
   - **Add to queue**.
   - **Add to playlist**: choose one of your own (or collaborative) playlists, or make a new one.
+  - **Save to Liked Songs**.
   - **Play artist radio**: plays the song, then queues a shuffled mix of other songs by the same artist. Spotify closed its recommendations API to new apps in 2024, so real song radio isn't available to this app.
-- **Playlists (☷)**: **+ NEW PLAYLIST** makes a private playlist. Open a playlist to play or shuffle it, or tap a song to play from there.
+- **Select several songs**: hold a song to start selecting, tap more, then **+ PLAYLIST**, **+ QUEUE** or (in your own playlists) **REMOVE**.
+- **Playlists (☷)**: **Recently played** (your last 50 songs) at the top, then your playlists. **+ NEW PLAYLIST** makes a private playlist.
+  - In your own playlists, swipe a song away to remove it. The app asks first.
   - Spotify only lets this app list the songs in playlists you own or collaborate on. Others can still be played or shuffled.
-- **Devices (◎)**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
 - **Settings (⚙)**:
   - **Sleep timer**: 15–90 minutes, or end of the current song. Timed sleeps use an Android alarm, so Spotify pauses on time even if the phone is asleep or the app is closed.
+  - **Play on**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
   - **Highlight colour**: 7 solid colours or 4 gradients.
   - **Show album art**.
+  - **Clock**: style (thin, regular, bold, mono), size, 12/24-hour, seconds and date.
   - **Keep screen awake**.
   - **Show over lock screen**: if the app is open when the phone locks, it stays visible without unlocking.
   - **When idle**: nothing, dim, clock & song only, or both. Choose an idle time of 30 s, 1, 2 or 5 min.
   - **Normal and dimmed brightness** sliders. These change this app's window only, not your phone's brightness setting.
   - **Pixel shift**: burn-in protection.
-  - **Spotify account**: check the account, change the Client ID, disconnect.
+  - **Background activity**: shows whether Android limits the app in the background, and opens the app's settings so you can allow it (Battery → Unrestricted).
+  - **Account**: who's connected, change the Client ID, disconnect.
 - **In-app setup**: paste your Spotify Client ID on first launch.
 - **Accessibility**: every button has a screen-reader label (TalkBack), and text follows the phone's font size. Symbol buttons and the clock keep a fixed size so they still fit with large fonts.
 
@@ -37,6 +46,10 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 4. Install it, paste your Client ID on the setup screen, and tap **SAVE AND CONNECT**.
 
 Optional: add a repository variable `SPOTIFY_CLIENT_ID` to bake in a default Client ID. A Client ID typed in the app always wins.
+
+## New permissions
+
+Playlist editing, Liked Songs and Recently played need Spotify permissions that older logins don't have. If a message says Spotify needs new permissions, go to Settings → Account → Disconnect, then connect again.
 
 ## Package name
 
@@ -63,7 +76,7 @@ Every GitHub build also runs Android lint. Lint errors fail the build and show u
 | Message | Meaning |
 |---|---|
 | 403 *User may not be registered* | The account that logged in isn't allowlisted for the Client ID shown in Settings. Check User Management, then Settings → Disconnect and connect again. |
-| No active playback device | Open Spotify on any device, or tap ◎ and pick one. |
+| No active playback device | Open Spotify on any device, or pick one in Settings → Play on. |
 | Rate limit reached | Spotify throttles Development Mode apps. The app slows its polling automatically. |
 
 ## Notes
