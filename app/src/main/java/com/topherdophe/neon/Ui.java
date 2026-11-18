@@ -177,20 +177,6 @@ final class Ui {
         return v;
     }
 
-    /** Top-bar button drawn from an icon resource, tinted with the highlight colour. */
-    View imageIcon(int drawable, String description, Runnable r) {
-        android.widget.ImageView v = new android.widget.ImageView(ctx);
-        v.setImageResource(drawable);
-        v.setImageTintList(ColorStateList.valueOf(accent()));
-        v.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        v.setContentDescription(description);
-        v.setBackground(ripple());
-        v.setPadding(dp(10), dp(10), dp(10), dp(10));
-        v.setLayoutParams(new LinearLayout.LayoutParams(dp(46), dp(46)));
-        v.setOnClickListener(x -> r.run());
-        return v;
-    }
-
     /** Top-bar button. */
     TextView icon(String symbol, String description, Runnable r) {
         TextView v = glyph(symbol, 26, description, r);

@@ -4,11 +4,10 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
 
 ## Features
 
-- **Now playing**: large clock, optional album art and date, track, artist, device and battery. Controls are play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
+- **Now playing**: large clock, optional album art and date, track, artist, device and battery. Shuffle and repeat (off → all → one) sit on the left of the song, one above the other, with a seekable progress bar below. There are no play or skip buttons:
   - **Swipe right** to skip, **swipe left** to go back, **two-finger swipe down** to play or pause. Swipes also work in clock-only idle mode without waking the screen.
   - **+** next to the song opens Add to playlist, Save to Liked Songs and Play artist radio.
 - **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
-- **Voice (mic)**: say a song to search for it, or a command: *pause*, *play*, *skip*, *back*, *shuffle on/off*, *play* + song, *play playlist / album / artist* + name, *queue* + song.
 - **Up next (♫)**: see the queue and tap a song to skip straight to it.
   - Swipe a song away to remove it. Spotify's API can't remove songs from the queue, so the app skips that song automatically when it comes up (only while the app is open).
 - **Search (⌕)**: songs, artists, albums or playlists. **MORE** loads further pages of 10.
@@ -23,18 +22,19 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
   - In your own playlists, swipe a song away to remove it. The app asks first.
   - Spotify only lets this app list the songs in playlists you own or collaborate on. Others can still be played or shuffled.
 - **Settings (⚙)**:
-  - **Sleep timer**: 15–90 minutes, or end of the current song. Timed sleeps use an Android alarm, so Spotify pauses on time even if the phone is asleep or the app is closed.
+  - **Sleep timer**: tap it to show the choices: 15–90 minutes, or end of the current song. Timed sleeps use an Android alarm, so Spotify pauses on time even if the phone is asleep or the app is closed.
   - **Play on**: switch playback to another Spotify Connect device. If you press play with no active device, the app reuses the last one automatically.
-  - **Highlight colour**: 7 solid colours or 4 gradients.
+  - **Highlight colour**: **One tone** opens a colour picker; **Gradient** opens two (start and end colour). Each picker has a colour slider and a white slider, with a preview.
   - **Show album art**.
-  - **Clock**: style (thin, regular, bold, mono), size, 12/24-hour, seconds and date.
+  - **Date and time ›**: its own page with clock style (thin, regular, bold, mono), size, 12/24-hour, seconds and date.
   - **Keep screen awake**.
-  - **Show over lock screen**: if the app is open when the phone locks, it stays visible without unlocking.
+  - **Show over lock screen**: if the app is open when the screen turns off (power button or timeout), the app is what you see when you wake the phone, instead of the lock screen. The phone stays locked: leaving the app asks for your PIN as usual. With **Keep screen awake** on, the screen never turns off, so this only matters when that's off.
   - **When idle**: nothing, dim, clock & song only, or both. Choose an idle time of 30 s, 1, 2 or 5 min.
   - **Normal and dimmed brightness** sliders. These change this app's window only, not your phone's brightness setting.
   - **Pixel shift**: burn-in protection.
   - **Background activity**: shows whether Android limits the app in the background, and opens the app's settings so you can allow it (Battery → Unrestricted).
   - **Account**: who's connected, change the Client ID, disconnect.
+- **Messages**: only problems show at the bottom of the screen, and they disappear after a few seconds. Routine notes like "Next song" aren't shown.
 - **In-app setup**: paste your Spotify Client ID on first launch.
 - **Accessibility**: every button has a screen-reader label (TalkBack), and text follows the phone's font size. Symbol buttons and the clock keep a fixed size so they still fit with large fonts.
 

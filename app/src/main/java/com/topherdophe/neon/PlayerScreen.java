@@ -16,10 +16,10 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/** Clock, song, progress and playback controls. */
+/** Clock, song, progress, shuffle and repeat. Play, next and previous are swipes (see MainActivity). */
 final class PlayerScreen extends BaseScreen {
-    private TextView clock, date, title, artist, device, elapsed, duration, play, shuffleBtn, repeatBtn, plus;
-    private View plusSpacer;
+    private TextView clock, date, title, artist, device, elapsed, duration, shuffleBtn, repeatBtn, plus;
+    private View modeColumn;
     private SeekBar progressBar;
     private ImageView art;
     private View ctrlColumn;
@@ -93,22 +93,32 @@ final class PlayerScreen extends BaseScreen {
         artLp.bottomMargin = ui.dp(12);
         info.addView(art, artLp);
 
-        // Title with a + (song menu) on the right; an equal spacer on the left keeps the title centred.
-        LinearLayout titleRow = new LinearLayout(app);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        plusSpacer = new View(app);
-        titleRow.addView(plusSpacer, new LinearLayout.LayoutParams(ui.dp(48), 1));
+        // Shuffle above repeat on the left, title and artist in the middle, + (song menu) on the right.
+        LinearLayout songRow = new LinearLayout(app);
+        songRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout modes = ui.vertical();
+        modeColumn = modes;
+        shuffleBtn = ui.glyph("⇄", 24, "Shuffle", playback::toggleShuffle);
+        repeatBtn = ui.glyph("↻", 24, "Repeat", playback::cycleRepeat);
+        shuffleBtn.setPadding(0, ui.dp(4), 0, ui.dp(4));
+        repeatBtn.setPadding(0, ui.dp(4), 0, ui.dp(4));
+        shuffleBtn.setMinHeight(ui.dp(40));
+        repeatBtn.setMinHeight(ui.dp(40));
+        modes.addView(shuffleBtn);
+        modes.addView(repeatBtn);
+        songRow.addView(modes, new LinearLayout.LayoutParams(ui.dp(48), -2));
+        LinearLayout texts = ui.vertical();
         title = Ui.oneLine(ui.text("", 26, true));
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        plus = ui.glyph("+", 30, "Options for this song", () -> {
-            if (playback.currentItem != null) SongMenu.show(app, playback.currentItem, true);
-            else app.status("Nothing playing");
-        });
-        titleRow.addView(plus, new LinearLayout.LayoutParams(ui.dp(48), -2));
-        info.addView(titleRow, Ui.matchWrap());
+        texts.addView(title, Ui.matchWrap());
         artist = Ui.oneLine(ui.text("", 19, false));
         artist.setAlpha(.75f);
-        info.addView(artist, Ui.matchWrap());
+        texts.addView(artist, Ui.matchWrap());
+        songRow.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        plus = ui.glyph("+", 30, "Options for this song", () -> {
+            if (playback.currentItem != null) SongMenu.show(app, playback.currentItem, true);
+        });
+        songRow.addView(plus, new LinearLayout.LayoutParams(ui.dp(48), -2));
+        info.addView(songRow, Ui.matchWrap());
         device = Ui.oneLine(ui.text("", 14, false));
         device.setAlpha(.55f);
         device.setPadding(0, ui.dp(4), 0, 0);
@@ -140,19 +150,6 @@ final class PlayerScreen extends BaseScreen {
         times.addView(new View(app), new LinearLayout.LayoutParams(0, 1, 1));
         times.addView(duration);
         ctrl.addView(times, Ui.matchWrap());
-
-        LinearLayout controls = new LinearLayout(app);
-        controls.setGravity(Gravity.CENTER);
-        controls.setPadding(0, ui.dp(8), 0, ui.dp(4));
-        shuffleBtn = ui.glyph("⇄", 26, "Shuffle", playback::toggleShuffle);
-        controls.addView(shuffleBtn);
-        controls.addView(ui.glyph("|◀", 34, "Previous song", playback::previous));
-        play = ui.glyph("▶", 54, "Play", playback::togglePlay);
-        controls.addView(play);
-        controls.addView(ui.glyph("▶|", 34, "Next song", playback::next));
-        repeatBtn = ui.glyph("↻", 26, "Repeat", playback::cycleRepeat);
-        controls.addView(repeatBtn);
-        ctrl.addView(controls, Ui.matchWrap());
 
         if (!spotify.isConnected()) ctrl.addView(ui.action("CONNECT TO SPOTIFY", 20, app::login));
 
@@ -207,8 +204,6 @@ final class PlayerScreen extends BaseScreen {
             artist.setText(pb.artistName);
         }
         updateDeviceLine();
-        play.setText(pb.isPlaying ? "Ⅱ" : "▶");
-        play.setContentDescription(pb.isPlaying ? "Pause" : "Play");
         shuffleBtn.setAlpha(pb.shuffle ? 1f : Ui.OFF);
         shuffleBtn.setContentDescription(pb.shuffle ? "Shuffle, on" : "Shuffle, off");
         repeatBtn.setText("track".equals(pb.repeat) ? "↻1" : "↻");
@@ -265,13 +260,13 @@ final class PlayerScreen extends BaseScreen {
         if (show) art.setImageBitmap(playback.artBitmap);
     }
 
-    /** Clock & song only: hides the top bar, controls, device line and art. */
+    /** Clock & song only: hides the top bar, shuffle/repeat, +, seek bar, device line and art. */
     @Override void setMinimal(boolean m) {
         minimal = m;
         int vis = m ? View.GONE : View.VISIBLE;
         if (ctrlColumn != null) ctrlColumn.setVisibility(vis);
         if (device != null) device.setVisibility(vis);
-        if (plus != null) { plus.setVisibility(vis); plusSpacer.setVisibility(vis); }
+        if (plus != null) { plus.setVisibility(vis); modeColumn.setVisibility(vis); }
         if (clock != null) Ui.fixedSize(clock, clockSize());
         updateArt();
     }

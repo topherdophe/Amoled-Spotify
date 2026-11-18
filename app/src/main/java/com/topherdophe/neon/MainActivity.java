@@ -1,6 +1,7 @@
 package com.topherdophe.neon;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -42,7 +43,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     // Shell views
     private LinearLayout shifter, content, topBar;
     private TextView battery, message;
-    private boolean errorShown;
 
     // Idle state
     private boolean idling, minimal, swallowing;
@@ -55,10 +55,14 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     // Show over lock screen: whether the app was in front when the screen went off.
     private long pausedAt;
-    private boolean leftApp;
+    private boolean leftApp, armed;
     private final BroadcastReceiver screenOff = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { bringBackOverLock(); }
+        @Override public void onReceive(Context c, Intent i) {
+            if (Intent.ACTION_SCREEN_OFF.equals(i.getAction())) onScreenOff();
+            else onScreenOn();
+        }
     };
+    private final Runnable refront = this::bringToFront;
 
     // ================================================================ lifecycle
 
@@ -84,6 +88,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         open(spotify.hasClientId() ? new PlayerScreen() : new SetupScreen());
         if (saved == null) handleIntent(getIntent());
         IntentFilter off = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        off.addAction(Intent.ACTION_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, off, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(screenOff, off);
     }
@@ -104,6 +109,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         super.onResume();
         pausedAt = 0;
         leftApp = false;
+        armed = false;
+        handler.removeCallbacks(refront);
         hideSystemUi();
         lastTouch = SystemClock.elapsedRealtime();
         exitIdle();
@@ -128,7 +135,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         leftApp = true;
     }
 
-    /** Browser, Spotify, voice, App info: those stay on top, so don't cover them. */
+    /** Browser, Spotify, App info: those stay on top, so don't cover them. */
     @Override public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
         leftApp = true;
         super.startActivityForResult(intent, requestCode, options);
@@ -160,11 +167,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         BaseScreen back = screen.back();
         if (back != null) open(back);
         else super.onBackPressed();
-    }
-
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == Voice.REQUEST) Voice.onResult(this, resultCode, data);
     }
 
     /**
@@ -313,7 +315,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         battery = ui.text("--%", 16, false);
         topBar.addView(battery);
         topBar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        topBar.addView(ui.imageIcon(R.drawable.ic_mic, "Voice: say a song or a command", () -> Voice.listen(this)));
         topBar.addView(ui.icon("♫︎", "Up next", () -> open(new QueueScreen())));
         topBar.addView(ui.icon("⌕", "Search", () -> open(new SearchScreen())));
         topBar.addView(ui.icon("☷", "Playlists", () -> open(new PlaylistsScreen())));
@@ -323,8 +324,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         content = ui.vertical();
         shifter.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        // Only problems show here (and fade after a few seconds); routine notes like "Next song" don't.
         message = ui.text("", 13, false);
         message.setAlpha(.8f);
+        message.setVisibility(View.GONE);
         message.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
         // Screen readers announce status and error messages as they appear.
         message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -364,9 +367,24 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     @Override public void onPlaybackChanged() { screen.onPlaybackChanged(); }
 
-    @Override public void status(String s) { errorShown = false; if (message != null) message.setText(s); }
-    @Override public void error(String s) { errorShown = true; if (message != null) message.setText(s); }
-    @Override public void clearError() { if (errorShown) status(""); }
+    /** Routine notes ("Next song", "Using …") are no longer shown. */
+    @Override public void status(String s) { }
+
+    @Override public void error(String s) {
+        if (message == null) return;
+        message.setText(s);
+        message.setVisibility(minimal || s.isEmpty() ? View.GONE : View.VISIBLE);
+        handler.removeCallbacks(hideError);
+        handler.postDelayed(hideError, 8000);
+    }
+
+    @Override public void clearError() { hideError.run(); }
+
+    private final Runnable hideError = () -> {
+        if (message == null) return;
+        message.setText("");
+        message.setVisibility(View.GONE);
+    };
 
     // ================================================================ sleep timer
 
@@ -418,7 +436,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         minimal = m;
         int vis = m ? View.GONE : View.VISIBLE;
         if (topBar != null) topBar.setVisibility(vis);
-        if (message != null) message.setVisibility(vis);
+        if (message != null) message.setVisibility(m || message.getText().length() == 0 ? View.GONE : View.VISIBLE);
         if (screen != null) screen.setMinimal(m);
     }
 
@@ -444,15 +462,29 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     }
 
     /**
-     * Some phones (Samsung, OnePlus) put their own lock screen on top when the screen goes off,
-     * even though this activity may show over it. If the app was in front when that happened,
-     * bring it straight back to the top so it's what you see when the screen wakes.
-     * It never wakes the screen itself and never unlocks the phone.
+     * Some phones (Samsung, OnePlus) put their own lock screen on top of the app, even though it may
+     * show over it. If the app was in front when the screen went off, it brings itself back on top:
+     * straight away, a few more times while the phone locks (on a timeout the lock can come a few
+     * seconds later), and again when the screen wakes. It never wakes the screen and never unlocks the phone.
      */
-    private void bringBackOverLock() {
+    private void onScreenOff() {
         if (!settings.overLock || leftApp || isFinishing()) return;
         boolean wasInFront = pausedAt == 0 || SystemClock.elapsedRealtime() - pausedAt < 3000;
         if (!wasInFront) return;
+        armed = true;
+        handler.removeCallbacks(refront);
+        bringToFront();
+        for (long ms : new long[]{1500, 5000, 10_000, 30_000}) handler.postDelayed(refront, ms);
+    }
+
+    private void onScreenOn() {
+        handler.removeCallbacks(refront);
+        KeyguardManager km = getSystemService(KeyguardManager.class);
+        if (armed && settings.overLock && km != null && km.isKeyguardLocked()) bringToFront();
+    }
+
+    private void bringToFront() {
+        if (!armed || !settings.overLock || isFinishing()) return;
         applyLockScreen();
         Intent front = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);

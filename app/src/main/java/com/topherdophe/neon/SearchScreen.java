@@ -21,13 +21,6 @@ final class SearchScreen extends BaseScreen {
     private static String lastQuery = "";
     private static int lastType = 0;
 
-    /** Opens search and runs it (used by voice). */
-    static void openWith(MainActivity app, String query) {
-        lastQuery = query;
-        lastType = 0;
-        app.open(new SearchScreen());
-    }
-
     private LinearLayout list;
 
     @Override void build() {
@@ -39,7 +32,6 @@ final class SearchScreen extends BaseScreen {
         q.setContentDescription("Search");
         q.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         box.addView(q, new LinearLayout.LayoutParams(0, -2, 1));
-        box.addView(ui.imageIcon(R.drawable.ic_mic, "Voice: say a song or a command", () -> Voice.listen(app)));
         content.addView(box, Ui.matchWrap());
         content.addView(ui.choices("Search for", TYPE_LABELS, lastType, i -> {
             lastType = i;

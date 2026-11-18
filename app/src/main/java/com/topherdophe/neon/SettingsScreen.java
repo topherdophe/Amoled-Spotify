@@ -12,18 +12,17 @@ import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Sleep timer, playback device, appearance, clock, screen behaviour, battery and the account link. */
+/** Sleep timer, playback device, appearance, date and time link, screen behaviour, battery and the account link. */
 final class SettingsScreen extends BaseScreen {
-    /** Page and colour-row scroll positions, restored after a colour change rebuilds the screen. */
-    private final int scrollY, chipsX;
+    private static final String[] COLOUR_MODES = {"One tone", "Gradient"};
+
+    /** Page scroll position, restored after a colour change rebuilds the screen. */
+    private final int scrollY;
     private TextView batteryRow;
 
-    SettingsScreen() { this(0, 0); }
+    SettingsScreen() { this(0); }
 
-    SettingsScreen(int scrollY, int chipsX) {
-        this.scrollY = scrollY;
-        this.chipsX = chipsX;
-    }
+    SettingsScreen(int scrollY) { this.scrollY = scrollY; }
 
     @Override void build() {
         heading("Settings");
@@ -31,8 +30,21 @@ final class SettingsScreen extends BaseScreen {
         View page = (View) list.getParent();
         AppSettings s = settings;
 
-        ui.section(list, "Sleep timer");
-        ui.setting(list, ui.choices("Sleep timer", AppSettings.SLEEP_LABELS, app.sleepChoice(), app::setSleep));
+        // Sleep timer: one row; the time limits only appear after tapping it.
+        LinearLayout sleep = ui.vertical();
+        TextView sleepRow = ui.action(sleepLabel(), 16, null);
+        sleep.addView(sleepRow, Ui.matchWrap());
+        View[] sleepChoices = new View[1];
+        sleepChoices[0] = ui.choices("Sleep timer", AppSettings.SLEEP_LABELS, app.sleepChoice(), i -> {
+            app.setSleep(i);
+            sleepRow.setText(sleepLabel());
+            sleepChoices[0].setVisibility(View.GONE);
+        });
+        sleepChoices[0].setVisibility(View.GONE);
+        sleep.addView(sleepChoices[0], Ui.matchWrap());
+        sleepRow.setOnClickListener(v -> sleepChoices[0].setVisibility(
+                sleepChoices[0].getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        ui.setting(list, sleep);
 
         String device = playback.hasPlayback && !playback.deviceName.isEmpty() ? playback.deviceName : "choose a device";
         ui.setting(list, ui.action("Play on: " + device + "  ›", 16, () -> app.open(new DevicesScreen(null).from(this))));
@@ -41,45 +53,35 @@ final class SettingsScreen extends BaseScreen {
         colourLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         colourLabel.setPadding(0, ui.dp(20), 0, 0);
         list.addView(colourLabel, Ui.matchWrap());
-        HorizontalScrollView[] colorRow = new HorizontalScrollView[1];
-        HorizontalScrollView colors = ui.choices("Highlight colour", AppSettings.COLOR_NAMES, s.colorIndex, i -> {
-            int y = page.getScrollY(), x = colorRow[0].getScrollX();
-            s.colorIndex = i;
-            s.save();
-            app.rebuildShell(new SettingsScreen(y, x));
-        });
-        colorRow[0] = colors;
-        if (scrollY > 0 || chipsX > 0) {
-            // Restore positions before the first frame is drawn, so the page doesn't visibly jump.
+        HorizontalScrollView colors = ui.choices("Highlight colour", COLOUR_MODES, s.gradient ? 1 : 0, i ->
+                ColourPicker.show(app, i == 1, s.color1, s.color2, (c1, c2) -> {
+                    s.color1 = c1;
+                    if (i == 1) s.color2 = c2;
+                    s.gradient = i == 1;
+                    s.save();
+                    app.rebuildShell(new SettingsScreen(page.getScrollY()));
+                }, () -> app.open(new SettingsScreen(page.getScrollY()))));
+        LinearLayout chips = (LinearLayout) colors.getChildAt(0);
+        ui.tint((TextView) chips.getChildAt(0), s.color1, s.color1);
+        ui.tint((TextView) chips.getChildAt(1), s.color1, s.color2);
+        ui.setting(list, colors);
+        if (scrollY > 0) {
+            // Restore the position before the first frame is drawn, so the page doesn't visibly jump.
             page.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
                 @Override public boolean onPreDraw() {
                     page.getViewTreeObserver().removeOnPreDrawListener(this);
                     page.scrollTo(0, scrollY);
-                    colors.scrollTo(chipsX, 0);
                     return true;
                 }
             });
         }
-        LinearLayout chips = (LinearLayout) colors.getChildAt(0);
-        for (int i = 0; i < chips.getChildCount(); i++) {
-            ui.tint((TextView) chips.getChildAt(i), AppSettings.COLORS[i][0], AppSettings.COLORS[i][1]);
-        }
-        ui.setting(list, colors);
         ui.setting(list, ui.switchRow("Show album art", s.showArt, on -> {
             s.showArt = on;
             s.save();
             if (on) playback.loadArt();
         }));
 
-        ui.section(list, "Clock");
-        list.addView(ui.label("Style"), Ui.matchWrap());
-        ui.setting(list, ui.choices("Clock style", AppSettings.CLOCK_STYLES, s.clockStyle, i -> { s.clockStyle = i; s.save(); }));
-        list.addView(ui.label("Size"), Ui.matchWrap());
-        ui.setting(list, ui.choices("Clock size", AppSettings.CLOCK_SIZES, s.clockSize, i -> { s.clockSize = i; s.save(); }));
-        list.addView(ui.label("Hours"), Ui.matchWrap());
-        ui.setting(list, ui.choices("Clock hours", AppSettings.CLOCK_HOURS, s.clockHours, i -> { s.clockHours = i; s.save(); }));
-        ui.setting(list, ui.switchRow("Show seconds", s.clockSeconds, on -> { s.clockSeconds = on; s.save(); }));
-        ui.setting(list, ui.switchRow("Show date", s.clockDate, on -> { s.clockDate = on; s.save(); }));
+        ui.setting(list, ui.action("Date and time  ›", 16, () -> app.open(new DateTimeScreen())));
 
         ui.section(list, "Screen");
         ui.setting(list, ui.switchRow("Keep screen awake", s.keepOn, on -> { s.keepOn = on; s.save(); app.applyKeepOn(); }));
@@ -105,6 +107,10 @@ final class SettingsScreen extends BaseScreen {
 
         ui.setting(list, ui.action("Account  ›", 17, () -> app.open(new AccountScreen())));
         backButton();
+    }
+
+    private String sleepLabel() {
+        return "Sleep timer: " + AppSettings.SLEEP_LABELS[app.sleepChoice()] + "  ›";
     }
 
     /** Coming back from Android's settings: show the new battery state. */

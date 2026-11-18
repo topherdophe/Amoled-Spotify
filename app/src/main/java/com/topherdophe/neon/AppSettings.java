@@ -5,10 +5,8 @@ import android.content.SharedPreferences;
 
 /** User preferences, plus the option lists shown on the Settings screen. */
 final class AppSettings {
-    // Highlight colours: solid colours first, then gradients (start, end).
-    static final String[] COLOR_NAMES = {"Neon", "Cyan", "Magenta", "Amber", "Red", "Violet", "White",
-            "Aurora", "Vapor", "Sunset", "Ocean"};
-    static final int[][] COLORS = {
+    // The old fixed highlight colours (solid, then gradients), only used to carry over an old choice.
+    private static final int[][] OLD_COLORS = {
             {0xFF00FF00, 0xFF00FF00}, {0xFF00E5FF, 0xFF00E5FF}, {0xFFFF00FF, 0xFFFF00FF}, {0xFFFFB000, 0xFFFFB000},
             {0xFFFF1744, 0xFFFF1744}, {0xFFB388FF, 0xFFB388FF}, {0xFFFFFFFF, 0xFFFFFFFF},
             {0xFF00FF00, 0xFF00E5FF}, {0xFFFF00FF, 0xFF00E5FF}, {0xFFFFB000, 0xFFFF1744}, {0xFF2979FF, 0xFF00E5FF}};
@@ -28,7 +26,10 @@ final class AppSettings {
     static final String[] CLOCK_HOURS = {"Phone setting", "12-hour", "24-hour"};
 
     private final SharedPreferences prefs;
-    int colorIndex, idleMode, idleChoice, brightNormal, brightDim;
+    /** Highlight colour: color1 alone (one tone), or a gradient from color1 to color2. */
+    int color1, color2;
+    boolean gradient;
+    int idleMode, idleChoice, brightNormal, brightDim;
     boolean keepOn, showArt, pixelShift, overLock;
     int clockStyle, clockSize, clockHours;
     boolean clockSeconds, clockDate;
@@ -43,7 +44,10 @@ final class AppSettings {
         idleChoice = clamp(prefs.getInt("idleChoice", 0), 0, IDLE_SECONDS.length - 1);
         brightNormal = clamp(prefs.getInt("brightNormal", 0), 0, 100);
         brightDim = clamp(prefs.getInt("brightDim", 5), 1, 100);
-        colorIndex = clamp(prefs.getInt("color", 0), 0, COLORS.length - 1);
+        int[] old = OLD_COLORS[clamp(prefs.getInt("color", 0), 0, OLD_COLORS.length - 1)];
+        color1 = prefs.getInt("color1", old[0]);
+        color2 = prefs.getInt("color2", old[0] == old[1] ? 0xFF00E5FF : old[1]);
+        gradient = prefs.getBoolean("gradient", old[0] != old[1]);
         clockStyle = clamp(prefs.getInt("clockStyle", 0), 0, CLOCK_STYLES.length - 1);
         clockSize = clamp(prefs.getInt("clockSize", 1), 0, CLOCK_SIZES.length - 1);
         clockHours = clamp(prefs.getInt("clockHours", 0), 0, CLOCK_HOURS.length - 1);
@@ -57,14 +61,14 @@ final class AppSettings {
                 .putBoolean("showArt", showArt).putBoolean("pixelShift", pixelShift)
                 .putInt("idleMode", idleMode).putInt("idleChoice", idleChoice)
                 .putInt("brightNormal", brightNormal).putInt("brightDim", brightDim)
-                .putInt("color", colorIndex)
+                .putInt("color1", color1).putInt("color2", color2).putBoolean("gradient", gradient)
                 .putInt("clockStyle", clockStyle).putInt("clockSize", clockSize).putInt("clockHours", clockHours)
                 .putBoolean("clockSeconds", clockSeconds).putBoolean("clockDate", clockDate)
                 .apply();
     }
 
-    int accent() { return COLORS[colorIndex][0]; }
-    int accent2() { return COLORS[colorIndex][1]; }
+    int accent() { return color1; }
+    int accent2() { return gradient ? color2 : color1; }
 
     boolean dimsWhenIdle() { return idleMode == IDLE_DIM || idleMode == IDLE_MINIMAL_DIM; }
     boolean minimalWhenIdle() { return idleMode == IDLE_MINIMAL || idleMode == IDLE_MINIMAL_DIM; }

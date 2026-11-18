@@ -364,28 +364,6 @@ final class Playback {
         });
     }
 
-    /**
-     * Voice commands: finds the best match for query and plays it (or, for a song, adds it to the queue).
-     * type is track, album, artist or playlist.
-     */
-    void playSearch(String type, String query, boolean queueOnly) {
-        host.status("Looking for " + query + "…");
-        spotify.request("GET", "/search?type=" + type + "&limit=1&q=" + Uri.encode(query), null, (code, body) -> {
-            if (code != 200) { host.error(spotify.explain(code, body)); return; }
-            JSONObject first = null;
-            try {
-                JSONArray items = new JSONObject(body).getJSONObject(type + "s").getJSONArray("items");
-                for (int i = 0; i < items.length() && first == null; i++) first = items.optJSONObject(i);
-            } catch (JSONException ignored) { }
-            if (first == null) { host.status("Nothing found for \u201c" + query + "\u201d"); return; }
-            String uri = Json.str(first, "uri"), name = Json.str(first, "name");
-            if (queueOnly) { addToQueue(uri, name); return; }
-            if ("track".equals(type)) playTrack(uri);
-            else playContext(uri);
-            host.status("Playing " + name);
-        });
-    }
-
     void addToQueue(String uri, String name) {
         spotify.request("POST", "/me/player/queue?uri=" + SpotifyClient.enc(uri), null, (code, body) -> {
             if (code >= 200 && code < 300) { skipUris.remove(uri); host.status("Added to queue: " + name); }
