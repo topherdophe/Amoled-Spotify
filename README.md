@@ -5,7 +5,9 @@ A minimal pure-black (`#000000`) and neon-green (`#00FF00`) Spotify remote for A
 ## Features
 
 - **Now playing**: large clock, track, artist, device, battery.
-- **Controls**: play/pause, previous/next, shuffle, repeat (off → all → one), a seekable progress bar, and a volume slider with −/+ buttons.
+- **Controls**: play/pause, previous/next, shuffle, repeat (off → all → one) and a seekable progress bar.
+- **Portrait and landscape**: when you rotate the phone, track info moves to the left and the controls to the right.
+- **In-app setup**: paste your Spotify Client ID on first launch. You can change it later under ⓘ.
 - **Device picker (◎)**: lists your Spotify Connect devices and switches playback to the one you tap. If you press play with no active device, the app reuses your last device (or the only one available) automatically. "Open Spotify on this phone" starts the Spotify app so the phone shows up as a device.
 - **Search (⌕)** and **Playlists (☷)** with **MORE** paging. Spotify limits search to 10 results per page for Development Mode apps.
 - **OLED care**:
@@ -14,15 +16,16 @@ A minimal pure-black (`#000000`) and neon-green (`#00FF00`) Spotify remote for A
   - **NIGHT** keeps the app permanently dim.
   - **SCREEN ON** keeps the display awake.
   - Nothing polls or runs while the screen is off or the app is in the background.
-- **Diagnostics (ⓘ)**: the Client ID baked into the build, the last request and its result, an account test, and disconnect/reconnect.
+- **Diagnostics (ⓘ)**: the Client ID in use (with a button to change it), the last request and its result, an account test, and disconnect/reconnect.
 
 ## Setup
 
 1. Create an app at https://developer.spotify.com/dashboard. Tick **Web API**, and add the redirect URI `neonspotify://callback` exactly.
 2. Under **User Management**, add the name and email of each Spotify account that will use the app (up to 5). The email must match the one shown at spotify.com/account. The app owner needs Spotify Premium.
-3. In this GitHub repo, go to **Settings → Secrets and variables → Actions → Variables** and add `SPOTIFY_CLIENT_ID` with your app's Client ID.
-4. Push to `main` (or run the workflow manually). Download the APK from the run's **Artifacts**.
-5. Install it on your phone, tap **CONNECT TO SPOTIFY**, and check the account shown on Spotify's consent screen.
+3. Push to `main` (or run the workflow manually). Download the APK from the run's **Artifacts**.
+4. Install it on your phone, paste your Client ID on the setup screen, tap **SAVE AND CONNECT**, and check the account shown on Spotify's consent screen.
+
+Optional: to bake a default Client ID into the build, add a repository variable `SPOTIFY_CLIENT_ID` under **Settings → Secrets and variables → Actions → Variables**. A Client ID entered in the app always takes priority. A Client ID isn't a secret: this app uses PKCE, so there is no client secret.
 
 To build locally instead, run `gradle assembleDebug -PSPOTIFY_CLIENT_ID=your_id` (JDK 17, Android SDK 35).
 

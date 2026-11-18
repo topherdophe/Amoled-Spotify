@@ -2,9 +2,12 @@ package com.example.neonspotify;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -50,7 +53,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     private static final int PAGE = 10; // Spotify's Development Mode search limit since Feb 2026
     private static final float OFF = .35f;
 
-    private enum Screen { PLAYER, SEARCH, PLAYLISTS, DEVICES, INFO }
+    private enum Screen { PLAYER, SEARCH, PLAYLISTS, DEVICES, INFO, SETUP }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpotifyClient spotify;
@@ -64,14 +67,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
 
     // Player views (null unless the player screen is showing)
     private TextView clock, title, artist, device, elapsed, duration, play, shuffleBtn, repeatBtn;
-    private SeekBar progressBar, volumeBar;
-    private boolean draggingProgress, draggingVolume;
+    private SeekBar progressBar;
+    private boolean draggingProgress;
 
     // Playback state
-    private boolean hasPlayback, isPlaying, shuffle, supportsVolume = true, refreshing;
+    private boolean hasPlayback, isPlaying, shuffle, refreshing;
     private String repeat = "off", trackName = "", artistName = "", deviceName = "";
     private long progressMs, durationMs, progressAt;
-    private int volume = -1;
     private String lastQuery = "";
 
     // OLED care
@@ -99,7 +101,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         }
         applyKeepOn();
         buildShell();
-        showPlayer();
+        if (spotify.hasClientId()) showPlayer(); else showSetup();
         if (saved == null) handleIntent(getIntent());
     }
 
@@ -130,6 +132,17 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         handler.removeCallbacksAndMessages(null);
         spotify.shutdown();
         super.onDestroy();
+    }
+
+    /** Rotation is handled here (see configChanges in the manifest) so state and typed text survive. */
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyShellPadding();
+        if (screen == Screen.PLAYER) showPlayer();
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -198,7 +211,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         frame.setBackgroundColor(BLACK);
         setContentView(frame);
         shifter = vertical();
-        shifter.setPadding(dp(16), dp(28), dp(16), dp(12));
+        applyShellPadding();
         frame.addView(shifter, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout top = new LinearLayout(this);
@@ -222,12 +235,18 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         updateBattery();
     }
 
+    private void applyShellPadding() {
+        // Landscape: extra side padding clears the camera cutout; less top padding saves height.
+        if (isLandscape()) shifter.setPadding(dp(40), dp(8), dp(40), dp(4));
+        else shifter.setPadding(dp(16), dp(28), dp(16), dp(12));
+    }
+
     private void clearContent(Screen s) {
         screen = s;
         content.removeAllViews();
         clock = title = artist = device = elapsed = duration = play = shuffleBtn = repeatBtn = null;
-        progressBar = volumeBar = null;
-        draggingProgress = draggingVolume = false;
+        progressBar = null;
+        draggingProgress = false;
     }
 
     private void showPlayer() {
@@ -240,24 +259,42 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         p.setGravity(Gravity.CENTER);
         scroll.addView(p, new FrameLayout.LayoutParams(-1, -1));
 
-        clock = text("--:--", 64, false);
+        // Portrait: one centred column. Landscape: track info on the left, controls on the right.
+        boolean landscape = isLandscape();
+        LinearLayout info = vertical(), ctrl = vertical();
+        info.setGravity(Gravity.CENTER);
+        ctrl.setGravity(Gravity.CENTER);
+        if (landscape) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams ctrlLp = new LinearLayout.LayoutParams(0, -2, 1);
+            ctrlLp.leftMargin = dp(16);
+            row.addView(ctrl, ctrlLp);
+            p.addView(row, matchWrap());
+        } else {
+            p.addView(info, matchWrap());
+            p.addView(ctrl, matchWrap());
+        }
+
+        clock = text("--:--", landscape ? 72 : 64, false);
         clock.setTypeface(Typeface.create("sans-serif-thin", Typeface.NORMAL));
-        p.addView(clock, matchWrap());
+        info.addView(clock, matchWrap());
         title = oneLine(text("", 26, true));
-        p.addView(title, matchWrap());
+        info.addView(title, matchWrap());
         artist = oneLine(text("", 19, false));
         artist.setAlpha(.75f);
-        p.addView(artist, matchWrap());
+        info.addView(artist, matchWrap());
         device = oneLine(text("", 14, false));
         device.setAlpha(.55f);
         device.setPadding(0, dp(4), 0, 0);
         device.setOnClickListener(v -> showDevices(null));
-        p.addView(device, matchWrap());
+        info.addView(device, matchWrap());
 
         progressBar = seekBar();
         LinearLayout.LayoutParams barLp = matchWrap();
-        barLp.topMargin = dp(24);
-        p.addView(progressBar, barLp);
+        barLp.topMargin = dp(landscape ? 0 : 24);
+        ctrl.addView(progressBar, barLp);
         progressBar.setOnSeekBarChangeListener(new SeekAdapter() {
             @Override public void onProgressChanged(SeekBar sb, int value, boolean fromUser) {
                 if (fromUser && elapsed != null) elapsed.setText(fmt(value));
@@ -277,7 +314,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         times.addView(elapsed);
         times.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         times.addView(duration);
-        p.addView(times, matchWrap());
+        ctrl.addView(times, matchWrap());
 
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER);
@@ -305,20 +342,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
             command("PUT", "/me/player/repeat?state=" + repeat, null);
         });
         controls.addView(repeatBtn);
-        p.addView(controls, matchWrap());
-
-        LinearLayout vol = new LinearLayout(this);
-        vol.setGravity(Gravity.CENTER_VERTICAL);
-        vol.addView(action("−", 22, () -> changeVolume(-10)));
-        volumeBar = seekBar();
-        volumeBar.setMax(100);
-        volumeBar.setOnSeekBarChangeListener(new SeekAdapter() {
-            @Override public void onStartTrackingTouch(SeekBar sb) { draggingVolume = true; }
-            @Override public void onStopTrackingTouch(SeekBar sb) { draggingVolume = false; setVolume(sb.getProgress()); }
-        });
-        vol.addView(volumeBar, new LinearLayout.LayoutParams(0, -2, 1));
-        vol.addView(action("+", 22, () -> changeVolume(10)));
-        p.addView(vol, matchWrap());
+        ctrl.addView(controls, matchWrap());
 
         LinearLayout toggles = new LinearLayout(this);
         toggles.setGravity(Gravity.CENTER);
@@ -326,9 +350,9 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         toggles.addView(toggle("SCREEN ON", keepOn, on -> { keepOn = on; saveSettings(); applyKeepOn(); }));
         toggles.addView(toggle("AUTO-DIM", autoDim, on -> { autoDim = on; saveSettings(); }));
         toggles.addView(toggle("NIGHT", nightMode, on -> { nightMode = on; saveSettings(); setDimmed(on); }));
-        p.addView(toggles, matchWrap());
+        ctrl.addView(toggles, matchWrap());
 
-        if (!spotify.isConnected()) p.addView(action("CONNECT TO SPOTIFY", 20, this::login));
+        if (!spotify.isConnected()) ctrl.addView(action("CONNECT TO SPOTIFY", 20, this::login));
 
         updateClock();
         updatePlayerViews();
@@ -484,9 +508,65 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
                 result.setText("Account response unreadable");
             }
         })));
+        list.addView(action("CHANGE CLIENT ID", 16, this::showSetup));
         list.addView(action("DISCONNECT AND RECONNECT", 16, () -> { forgetSession(); login(); }));
         list.addView(action("DISCONNECT", 16, () -> { forgetSession(); status("Disconnected"); showPlayer(); }));
         content.addView(action("BACK", 17, this::showPlayer));
+    }
+
+    /** First-run / change screen for the Spotify Client ID, so it doesn't have to be baked into the build. */
+    private void showSetup() {
+        clearContent(Screen.SETUP);
+        heading("Spotify setup");
+        LinearLayout list = scrollList();
+        TextView steps = text("1. Create an app at developer.spotify.com/dashboard and tick Web API.\n"
+                + "2. Add this Redirect URI exactly: " + SpotifyClient.REDIRECT + "\n"
+                + "3. Under User Management, add your Spotify account's name and email.\n"
+                + "4. Copy the app's Client ID and paste it below.", 15, false);
+        steps.setGravity(Gravity.START);
+        steps.setLineSpacing(dp(4), 1f);
+        list.addView(steps, matchWrap());
+        list.addView(action("OPEN SPOTIFY DASHBOARD", 15, () -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://developer.spotify.com/dashboard"))); }
+            catch (ActivityNotFoundException e) { error("No browser found"); }
+        }));
+        list.addView(action("COPY REDIRECT URI", 15, () -> {
+            ClipboardManager cm = getSystemService(ClipboardManager.class);
+            if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Redirect URI", SpotifyClient.REDIRECT));
+            status("Copied " + SpotifyClient.REDIRECT);
+        }));
+
+        EditText id = new EditText(this);
+        id.setSingleLine(true);
+        id.setTextColor(GREEN);
+        id.setHintTextColor(HINT);
+        id.setHint("Client ID (32 characters)");
+        id.setText(spotify.clientId());
+        id.setTypeface(Typeface.MONOSPACE);
+        id.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        id.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        id.setBackgroundTintList(ColorStateList.valueOf(GREEN));
+        LinearLayout.LayoutParams idLp = matchWrap();
+        idLp.topMargin = dp(12);
+        list.addView(id, idLp);
+
+        Runnable save = () -> {
+            String value = id.getText().toString().trim();
+            if (!SpotifyClient.isValidClientId(value)) { error("That doesn't look like a Client ID: it should be 32 letters and numbers (0-9, a-f)."); return; }
+            hideKeyboard(id);
+            spotify.setClientId(value);
+            status("Client ID saved");
+            showPlayer();
+            if (!spotify.isConnected()) login();
+        };
+        id.setOnEditorActionListener((v, actionId, ev) -> {
+            if (actionId != EditorInfo.IME_ACTION_DONE) return false;
+            save.run();
+            return true;
+        });
+        list.addView(action("SAVE AND CONNECT", 18, save));
+        if (spotify.hasClientId()) content.addView(action("BACK", 17, this::showPlayer));
     }
 
     // ================================================================ playback
@@ -519,8 +599,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         JSONObject dev = j.optJSONObject("device");
         if (dev != null) {
             deviceName = str(dev, "name");
-            supportsVolume = dev.optBoolean("supports_volume", true);
-            volume = dev.isNull("volume_percent") ? -1 : dev.optInt("volume_percent", -1);
             String id = str(dev, "id");
             if (!id.isEmpty() && !id.equals(settings.getString("lastDevice", ""))) settings.edit().putString("lastDevice", id).apply();
         }
@@ -602,17 +680,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         } catch (JSONException ignored) { }
     }
 
-    private void changeVolume(int delta) {
-        if (!supportsVolume || volume < 0) { error("This device doesn't allow volume control"); return; }
-        setVolume(volume + delta);
-    }
-
-    private void setVolume(int v) {
-        volume = Math.max(0, Math.min(100, v));
-        updatePlayerViews();
-        command("PUT", "/me/player/volume?volume_percent=" + volume, null);
-    }
-
     private void updatePlayerViews() {
         if (screen != Screen.PLAYER || title == null) return;
         if (!spotify.isConnected()) {
@@ -634,10 +701,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
         repeatBtn.setAlpha("off".equals(repeat) ? OFF : 1f);
         progressBar.setMax((int) Math.max(durationMs, 1));
         duration.setText(fmt(durationMs));
-        boolean canVolume = hasPlayback && supportsVolume && volume >= 0;
-        volumeBar.setEnabled(canVolume);
-        volumeBar.setAlpha(canVolume ? 1f : OFF);
-        if (!draggingVolume && volume >= 0) volumeBar.setProgress(volume);
         updateProgressViews();
     }
 
@@ -657,10 +720,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener {
     // ================================================================ misc actions
 
     private void login() {
-        if (!spotify.hasClientId()) {
-            error("No Spotify Client ID in this build. Set the SPOTIFY_CLIENT_ID repository variable and rebuild.");
-            return;
-        }
+        if (!spotify.hasClientId()) { showSetup(); return; }
         try {
             spotify.login();
             status("Opening Spotify login…");

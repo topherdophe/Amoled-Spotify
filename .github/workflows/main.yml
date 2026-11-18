@@ -36,7 +36,7 @@ jobs:
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
         run: |
           if [ -z "$SPOTIFY_CLIENT_ID" ]; then
-            echo "::warning::SPOTIFY_CLIENT_ID repository variable is not set. The app will build but can't log in."
+            echo "::notice::SPOTIFY_CLIENT_ID repository variable is not set. The app will ask for the Client ID on first launch."
           fi
           if ! gradle assembleDebug --no-daemon --console=plain > build.log 2>&1; then
             cat build.log

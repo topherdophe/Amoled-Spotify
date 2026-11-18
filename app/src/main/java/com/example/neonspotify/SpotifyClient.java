@@ -46,7 +46,8 @@ final class SpotifyClient {
     private final Activity activity;
     private final Listener listener;
     private final SharedPreferences prefs;
-    private final String clientId;
+    private final String buildClientId;
+    private volatile String clientId;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -58,15 +59,29 @@ final class SpotifyClient {
     SpotifyClient(Activity activity, String clientId, Listener listener) {
         this.activity = activity;
         this.listener = listener;
-        this.clientId = clientId == null ? "" : clientId.trim();
+        buildClientId = clientId == null ? "" : clientId.trim();
         // New prefs file name on purpose: logins saved by older builds are ignored.
         prefs = activity.getSharedPreferences("spotify_session", Activity.MODE_PRIVATE);
+        // A Client ID typed in the app wins over the one baked into the build.
+        this.clientId = prefs.getString("client_id", buildClientId);
         accessToken = prefs.getString("access", "");
         refreshToken = prefs.getString("refresh", "");
         expiresAt = prefs.getLong("expiry", 0);
     }
 
-    boolean hasClientId() { return !clientId.isEmpty() && !clientId.startsWith("REPLACE"); }
+    boolean hasClientId() { return isValidClientId(clientId); }
+    String clientId() { return hasClientId() ? clientId : ""; }
+
+    /** Spotify Client IDs are 32 hexadecimal characters. */
+    static boolean isValidClientId(String id) { return id != null && id.trim().matches("[0-9a-fA-F]{32}"); }
+
+    /** Saves a Client ID entered in the app. Changing it signs you out, since tokens belong to one Client ID. */
+    void setClientId(String id) {
+        String clean = id.trim();
+        if (!clean.equals(clientId)) clearSession();
+        clientId = clean;
+        prefs.edit().putString("client_id", clean).apply();
+    }
     boolean isConnected() { return !accessToken.isEmpty() || !refreshToken.isEmpty(); }
     boolean isRateLimited() { return System.currentTimeMillis() < rateLimitedUntil; }
     void shutdown() { io.shutdownNow(); }
