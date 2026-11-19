@@ -1,10 +1,12 @@
 package com.topherdophe.neon;
 
+import android.animation.ValueAnimator;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.format.DateFormat;
 import android.view.Gravity;
 import android.view.View;
+import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -23,6 +25,9 @@ final class PlayerScreen extends BaseScreen {
     private SeekBar progressBar;
     private ImageView art;
     private View ctrlColumn;
+    /** Idle clock mode: the clock and song drift slowly up and down the screen (burn-in protection). */
+    private View infoView, stage;
+    private ValueAnimator drift;
     private boolean draggingProgress, minimal;
 
     @Override BaseScreen back() { return null; }
@@ -54,6 +59,8 @@ final class PlayerScreen extends BaseScreen {
         info.setGravity(Gravity.CENTER);
         ctrl.setGravity(Gravity.CENTER);
         ctrlColumn = ctrl;
+        infoView = info;
+        stage = scroll;
         if (landscape) {
             LinearLayout row = new LinearLayout(app);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -269,5 +276,32 @@ final class PlayerScreen extends BaseScreen {
         if (plus != null) { plus.setVisibility(vis); modeColumn.setVisibility(vis); }
         if (clock != null) Ui.fixedSize(clock, clockSize());
         updateArt();
+        stopDrift();
+        // Start once the bigger idle clock has been laid out, so the travel fits the screen.
+        if (m && infoView != null) infoView.postDelayed(this::startDrift, 400);
+    }
+
+    private static final float DRIFT_DP_PER_SEC = 6f;
+
+    /** A slow sine wave from the centre to the top, down to the bottom and back. */
+    private void startDrift() {
+        if (!minimal || infoView == null || stage == null || drift != null) return;
+        float room = (stage.getHeight() - infoView.getHeight()) / 2f - ui.dp(8);
+        if (room < ui.dp(4)) return;
+        // One full cycle travels 4 x room; this keeps the speed about the same on any screen.
+        long cycleMs = (long) (4 * room / ui.dpf(DRIFT_DP_PER_SEC) * 1000);
+        drift = ValueAnimator.ofFloat(0f, (float) (2 * Math.PI));
+        drift.setDuration(Math.max(cycleMs, 20_000));
+        drift.setRepeatCount(ValueAnimator.INFINITE);
+        drift.setInterpolator(new LinearInterpolator());
+        drift.addUpdateListener(a -> {
+            if (infoView != null) infoView.setTranslationY(room * (float) Math.sin((float) a.getAnimatedValue()));
+        });
+        drift.start();
+    }
+
+    private void stopDrift() {
+        if (drift != null) { drift.cancel(); drift = null; }
+        if (infoView != null) infoView.setTranslationY(0);
     }
 }

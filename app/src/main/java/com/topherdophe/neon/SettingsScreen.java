@@ -115,11 +115,6 @@ final class SettingsScreen extends BaseScreen {
         // Dragging previews the dimmed level; letting go returns to normal.
         ui.setting(list, ui.slider("Dimmed brightness", 1, s.brightDim, v -> v + "%",
                 v -> { s.brightDim = v; app.applyBrightness(true); }, () -> { s.save(); app.applyBrightness(false); }));
-        ui.setting(list, ui.switchRow("Pixel shift (burn-in protection)", s.pixelShift, on -> {
-            s.pixelShift = on;
-            s.save();
-            app.applyShift();
-        }));
 
         batteryRow = ui.action("", 16, this::openBatterySettings);
         updateBattery();

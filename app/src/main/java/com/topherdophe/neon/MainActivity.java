@@ -32,8 +32,6 @@ import android.widget.TextView;
  * {@link BaseScreen} pages in between. Framework views only.
  */
 public class MainActivity extends Activity implements SpotifyClient.Listener, Playback.Host {
-    private static final long SHIFT_MS = 30_000;
-
     private final Handler handler = new Handler(Looper.getMainLooper());
     AppSettings settings;
     SpotifyClient spotify;
@@ -43,7 +41,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
     private BaseScreen screen;
 
     // Shell views
-    private LinearLayout shifter, content, topBar;
+    private LinearLayout shell, content, topBar;
     private TextView battery, message;
 
     // Idle state
@@ -290,7 +288,6 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
             if (ticks++ % 30 == 0) updateBattery();
             playback.onTick();
             screen.onTick();
-            applyShift();
             if ((settings.idleMode != AppSettings.IDLE_NOTHING || settings.lockIdle) && !idling && screen.idleAllowed()
                     && SystemClock.elapsedRealtime() - lastTouch > settings.idleAfterMs()) enterIdle();
             handler.postDelayed(this, 1000);
@@ -312,10 +309,9 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         FrameLayout frame = new FrameLayout(this);
         frame.setBackgroundColor(Color.BLACK);
         setContentView(frame);
-        shifter = ui.vertical();
+        shell = ui.vertical();
         applyShellPadding();
-        applyShift();
-        frame.addView(shifter, new FrameLayout.LayoutParams(-1, -1));
+        frame.addView(shell, new FrameLayout.LayoutParams(-1, -1));
 
         topBar = new LinearLayout(this);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -328,10 +324,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         topBar.addView(ui.icon("⌕", "Search", () -> open(new SearchScreen())));
         topBar.addView(ui.icon("☷", "Playlists", () -> open(new PlaylistsScreen())));
         topBar.addView(ui.icon("⚙︎", "Settings", () -> open(new SettingsScreen())));
-        shifter.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
+        shell.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
 
         content = ui.vertical();
-        shifter.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        shell.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
         // Only problems show here (and fade after a few seconds); routine notes like "Next song" don't.
         message = ui.text("", 13, false);
@@ -340,28 +336,15 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         message.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
         // Screen readers announce status and error messages as they appear.
         message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        shifter.addView(message, new LinearLayout.LayoutParams(-1, -2));
+        shell.addView(message, new LinearLayout.LayoutParams(-1, -2));
         updateBattery();
     }
 
-    /** Burn-in protection: drift the whole UI a few dp every 30 s. Also called on rebuild so nothing jumps. */
-    void applyShift() {
-        if (shifter == null) return;
-        if (settings.pixelShift) {
-            long step = System.currentTimeMillis() / SHIFT_MS;
-            shifter.setTranslationX(ui.dpf((float) Math.sin(step * 0.7) * 6f));
-            shifter.setTranslationY(ui.dpf((float) Math.cos(step * 1.3) * 6f));
-        } else {
-            shifter.setTranslationX(0);
-            shifter.setTranslationY(0);
-        }
-    }
-
     private void applyShellPadding() {
-        if (shifter == null) return;
+        if (shell == null) return;
         // Landscape: extra side padding clears the camera cutout; less top padding saves height.
-        if (isLandscape()) shifter.setPadding(ui.dp(40), ui.dp(8), ui.dp(40), ui.dp(4));
-        else shifter.setPadding(ui.dp(16), ui.dp(28), ui.dp(16), ui.dp(12));
+        if (isLandscape()) shell.setPadding(ui.dp(40), ui.dp(8), ui.dp(40), ui.dp(4));
+        else shell.setPadding(ui.dp(16), ui.dp(28), ui.dp(16), ui.dp(12));
     }
 
     private void updateBattery() {

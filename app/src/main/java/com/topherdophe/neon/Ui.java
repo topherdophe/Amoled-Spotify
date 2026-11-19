@@ -98,7 +98,10 @@ final class Ui {
     }
 
     /** Sets a size in dp: it ignores the system font scale. Only for symbols and the clock. */
-    static void fixedSize(TextView v, float sizeDp) { v.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp); }
+    static void fixedSize(TextView v, float sizeDp) {
+        v.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp);
+        v.post(() -> applyShader(v)); // the gradient spans the text, so it follows the new size
+    }
 
     /**
      * Colours a TextView with a solid colour, or a left-to-right gradient across the text itself.
@@ -119,7 +122,9 @@ final class Ui {
         applyShader(v);
     }
 
-    private static void applyShader(TextView v) {
+    private static void applyShader(TextView v) { applyShader(v, 0); }
+
+    private static void applyShader(TextView v, int tries) {
         Object tag = v.getTag();
         if (!(tag instanceof int[])) return;
         int[] c = (int[]) tag;
@@ -127,14 +132,20 @@ final class Ui {
             if (v.getPaint().getShader() != null) { v.getPaint().setShader(null); v.invalidate(); }
             return;
         }
-        int inner = v.getWidth() - v.getTotalPaddingLeft() - v.getTotalPaddingRight();
-        if (inner <= 0) return;
-        float textWidth = 0;
-        for (String line : v.getText().toString().split("\n")) textWidth = Math.max(textWidth, v.getPaint().measureText(line));
-        textWidth = Math.max(1, Math.min(textWidth, inner));
-        boolean centred = (v.getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL;
-        float start = v.getTotalPaddingLeft() + (centred ? (inner - textWidth) / 2f : 0);
-        v.getPaint().setShader(new LinearGradient(start, 0, start + textWidth, 0, c[0], c[1], Shader.TileMode.CLAMP));
+        // The shader works in the text layout's own coordinates. Single-line text (the clock, title, artist,
+        // device) sits far to the right inside a very wide layout, so ask the layout where the text really is.
+        android.text.Layout layout = v.getLayout();
+        if (layout == null || layout.getLineCount() == 0) {
+            if (tries < 3) v.post(() -> applyShader(v, tries + 1)); // not laid out yet
+            return;
+        }
+        float start = Float.MAX_VALUE, end = -Float.MAX_VALUE;
+        for (int i = 0; i < layout.getLineCount(); i++) {
+            start = Math.min(start, layout.getLineLeft(i));
+            end = Math.max(end, layout.getLineRight(i));
+        }
+        if (end - start < 1) end = start + 1;
+        v.getPaint().setShader(new LinearGradient(start, 0, end, 0, c[0], c[1], Shader.TileMode.CLAMP));
         v.invalidate();
     }
 
