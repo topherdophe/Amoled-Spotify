@@ -283,19 +283,35 @@ final class PlayerScreen extends BaseScreen {
 
     private static final float DRIFT_DP_PER_SEC = 6f;
 
-    /** A slow sine wave from the centre to the top, down to the bottom and back. */
+    /** Fraction of the screen height kept clear at the top and at the bottom while drifting. */
+    private static final float DRIFT_EDGE = 0.10f;
+
+    /** A slow sine wave from the centre to the top, down to the bottom and back,
+     *  staying out of the top and bottom 10% of the screen. */
     private void startDrift() {
         if (!minimal || infoView == null || stage == null || drift != null) return;
-        float room = (stage.getHeight() - infoView.getHeight()) / 2f - ui.dp(8);
-        if (room < ui.dp(4)) return;
-        // One full cycle travels 4 x room; this keeps the speed about the same on any screen.
-        long cycleMs = (long) (4 * room / ui.dpf(DRIFT_DP_PER_SEC) * 1000);
+        int screenH = infoView.getRootView().getHeight();
+        if (screenH <= 0) return;
+        int[] pos = new int[2];
+        infoView.getLocationOnScreen(pos);
+        int[] rootPos = new int[2];
+        infoView.getRootView().getLocationOnScreen(rootPos);
+        float top = pos[1] - rootPos[1] - infoView.getTranslationY();
+        float edge = screenH * DRIFT_EDGE;
+        float upRoom = Math.max(0f, top - edge);
+        float downRoom = Math.max(0f, screenH - edge - (top + infoView.getHeight()));
+        if (Math.max(upRoom, downRoom) < ui.dp(4)) return;
+        // One full cycle travels about 2 x (up + down); this keeps the speed about the same on any screen.
+        long cycleMs = (long) (2 * (upRoom + downRoom) / ui.dpf(DRIFT_DP_PER_SEC) * 1000);
         drift = ValueAnimator.ofFloat(0f, (float) (2 * Math.PI));
         drift.setDuration(Math.max(cycleMs, 20_000));
         drift.setRepeatCount(ValueAnimator.INFINITE);
         drift.setInterpolator(new LinearInterpolator());
         drift.addUpdateListener(a -> {
-            if (infoView != null) infoView.setTranslationY(room * (float) Math.sin((float) a.getAnimatedValue()));
+            if (infoView == null) return;
+            float s = (float) Math.sin((float) a.getAnimatedValue());
+            // Negative = up, positive = down; each side uses its own room.
+            infoView.setTranslationY(s * (s < 0 ? upRoom : downRoom));
         });
         drift.start();
     }
