@@ -38,6 +38,12 @@ android {
         debug {
             if (hasSigningKey) signingConfig signingConfigs.neon
         }
+        // What GitHub builds: a normal (not debuggable) app, signed with the same permanent key,
+        // so it installs over earlier debug builds. Without the key it falls back to the debug key.
+        release {
+            minifyEnabled false
+            signingConfig hasSigningKey ? signingConfigs.neon : signingConfigs.debug
+        }
     }
     buildFeatures { resValues true }
     // Android's code checker. Errors fail the GitHub build; warnings are only reported.

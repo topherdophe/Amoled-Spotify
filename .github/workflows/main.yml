@@ -52,7 +52,7 @@ jobs:
           if [ -z "$SPOTIFY_CLIENT_ID" ]; then
             echo "::notice::SPOTIFY_CLIENT_ID repository variable is not set. The app will ask for the Client ID on first launch."
           fi
-          if ! gradle assembleDebug --no-daemon --console=plain > build.log 2>&1; then
+          if ! gradle assembleRelease --no-daemon --console=plain > build.log 2>&1; then
             cat build.log
             # Surface compiler errors as an annotation on the run summary.
             msg=$(grep -E "error:|e: |What went wrong|Exception" -A2 build.log | head -40 | sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g')
@@ -92,7 +92,7 @@ jobs:
 
       - name: Show signing certificate
         run: |
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           SHA=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | grep -m1 "SHA-256 digest" | awk '{print $NF}')
           echo "::notice title=Signing certificate SHA-256::$SHA"
 
@@ -100,5 +100,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Amoled-Spotify-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
