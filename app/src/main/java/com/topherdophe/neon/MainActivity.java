@@ -2,7 +2,6 @@ package com.topherdophe.neon;
 
 import android.app.Activity;
 import android.app.KeyguardManager;
-import android.app.admin.DevicePolicyManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -17,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -63,6 +63,12 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         }
     };
     private final Runnable refront = this::bringToFront;
+
+    // Lock phone when idle: after the phone's own screen timeout, wait for it to lock, then light it again.
+    private PowerManager.WakeLock lockWait;
+    private long lockWaitUntil;
+    /** Whether FLAG_KEEP_SCREEN_ON is set, so it's only changed when it needs to be. */
+    private Boolean keptOn;
 
     // ================================================================ lifecycle
 
@@ -112,6 +118,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         armed = false;
         handler.removeCallbacks(refront);
         hideSystemUi();
+        applyKeepOn();
         lastTouch = SystemClock.elapsedRealtime();
         if (relit) {
             // Back on screen after "Lock phone when idle": stay in idle mode over the lock screen.
@@ -150,6 +157,7 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        stopLockWait();
         try { unregisterReceiver(screenOff); } catch (IllegalArgumentException ignored) { }
         playback.shutdown();
         spotify.shutdown();
@@ -288,8 +296,10 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
             if (ticks++ % 30 == 0) updateBattery();
             playback.onTick();
             screen.onTick();
+            // Lock phone when idle: the screen stays on only while the app is over the lock screen.
+            if (settings.lockIdle) applyKeepOn();
             if ((settings.idleMode != AppSettings.IDLE_NOTHING || settings.lockIdle) && !idling && screen.idleAllowed()
-                    && SystemClock.elapsedRealtime() - lastTouch > settings.idleAfterMs()) enterIdle();
+                    && SystemClock.elapsedRealtime() - lastTouch > settings.idleAfterMs(systemTimeoutMs())) enterIdle();
             handler.postDelayed(this, 1000);
         }
     };
@@ -415,21 +425,51 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         idling = true;
         if (settings.dimsWhenIdle()) applyBrightness(true);
         if (settings.minimalWhenIdle()) setMinimal(true);
-        if (settings.lockIdle && settings.overLock) lockAndRelight();
+    }
+
+    /** The phone's own screen timeout (Settings → Display), in ms. */
+    long systemTimeoutMs() {
+        try { return Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT); }
+        catch (Settings.SettingNotFoundException e) { return 30_000; }
     }
 
     /**
-     * Lock phone when idle: locks the phone (device admin, lock only), then lights the screen again
-     * with the app showing over the lock screen. Does nothing if the phone is already locked,
-     * so using the app over the lock screen never re-locks it in a loop.
+     * Lock phone when idle, without any special permission: the phone locks itself when its screen
+     * timeout runs out. If the screen went off that way (not the power button) while the app was in front,
+     * wait for the lock (up to 30 s, for phones with a lock delay), then light the screen again with the
+     * app over the lock screen. While it's over the lock screen it keeps the screen on, so the timeout
+     * can't fire again and nothing loops.
      */
-    private void lockAndRelight() {
-        KeyguardManager km = getSystemService(KeyguardManager.class);
-        DevicePolicyManager dpm = getSystemService(DevicePolicyManager.class);
-        if (km == null || dpm == null || km.isKeyguardLocked() || !LockAdmin.isActive(this)) return;
-        relit = true;
-        try { dpm.lockNow(); } catch (SecurityException e) { relit = false; return; }
-        handler.postDelayed(relight, 700);
+    private void startLockWait() {
+        stopLockWait();
+        PowerManager pm = getSystemService(PowerManager.class);
+        if (pm != null) {
+            lockWait = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "neon:lockwait");
+            lockWait.acquire(32_000);
+        }
+        lockWaitUntil = SystemClock.elapsedRealtime() + 30_000;
+        handler.postDelayed(waitForLock, 300);
+    }
+
+    private final Runnable waitForLock = new Runnable() {
+        @Override public void run() {
+            KeyguardManager km = getSystemService(KeyguardManager.class);
+            if (km != null && km.isKeyguardLocked()) {
+                stopLockWait();
+                relit = true;
+                relight.run();
+            } else if (SystemClock.elapsedRealtime() < lockWaitUntil) {
+                handler.postDelayed(this, 500);
+            } else {
+                stopLockWait();
+            }
+        }
+    };
+
+    private void stopLockWait() {
+        handler.removeCallbacks(waitForLock);
+        if (lockWait != null && lockWait.isHeld()) lockWait.release();
+        lockWait = null;
     }
 
     @SuppressWarnings("deprecation")
@@ -499,6 +539,9 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         if (!settings.overLock || leftApp || isFinishing()) return;
         boolean wasInFront = pausedAt == 0 || SystemClock.elapsedRealtime() - pausedAt < 3000;
         if (!wasInFront) return;
+        // Screen timeout rather than the power button: nobody touched the app for the whole timeout.
+        boolean timedOut = SystemClock.elapsedRealtime() - lastTouch >= systemTimeoutMs() - 2000;
+        if (settings.lockIdle && timedOut) startLockWait();
         armed = true;
         handler.removeCallbacks(refront);
         bringToFront();
@@ -507,6 +550,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
 
     private void onScreenOn() {
         handler.removeCallbacks(refront);
+        // Woken by the user (or by relight, which has already finished waiting).
+        stopLockWait();
         KeyguardManager km = getSystemService(KeyguardManager.class);
         if (armed && settings.overLock && km != null && km.isKeyguardLocked()) bringToFront();
     }
@@ -520,9 +565,21 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         try { getApplicationContext().startActivity(front); } catch (RuntimeException ignored) { }
     }
 
+    /**
+     * Keep screen awake. With Lock phone when idle, the screen stays on only while the phone is locked
+     * (the app showing over the lock screen); while unlocked the phone's own timeout must be free to lock it.
+     */
     void applyKeepOn() {
-        // Lock phone when idle keeps the screen on too: that's the point of it.
-        if (settings.keepOn || settings.lockIdle) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        boolean on;
+        if (settings.lockIdle) {
+            KeyguardManager km = getSystemService(KeyguardManager.class);
+            on = km != null && km.isKeyguardLocked();
+        } else {
+            on = settings.keepOn;
+        }
+        if (keptOn != null && keptOn == on) return;
+        keptOn = on;
+        if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 

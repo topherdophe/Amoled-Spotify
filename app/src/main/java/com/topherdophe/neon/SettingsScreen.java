@@ -1,6 +1,5 @@
 package com.topherdophe.neon;
 
-import android.app.admin.DevicePolicyManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Typeface;
@@ -87,10 +86,13 @@ final class SettingsScreen extends BaseScreen {
         ui.setting(list, ui.action("Date and time  ›", 16, () -> app.open(new DateTimeScreen())));
 
         ui.section(list, "Screen");
-        ui.setting(list, ui.switchRow("Keep screen awake", s.keepOn, on -> { s.keepOn = on; s.save(); app.applyKeepOn(); }));
+        // Lock phone when idle decides when the screen stays on, so Keep screen awake is hidden then.
+        if (!s.lockIdle) {
+            ui.setting(list, ui.switchRow("Keep screen awake", s.keepOn, on -> { s.keepOn = on; s.save(); app.applyKeepOn(); }));
+        }
         ui.setting(list, ui.switchRow("Show over lock screen", s.overLock, on -> {
             s.overLock = on;
-            if (!on && s.lockIdle) { s.lockIdle = false; LockAdmin.remove(app); }
+            if (!on) s.lockIdle = false;
             s.save();
             app.applyLockScreen();
             app.applyKeepOn();
@@ -102,10 +104,14 @@ final class SettingsScreen extends BaseScreen {
             s.save();
             app.applyLockScreen();
             app.applyKeepOn();
-            if (!on) { LockAdmin.remove(app); reopen(); return; }
-            if (!LockAdmin.isActive(app)) askForLockPermission();
-            else reopen();
+            reopen();
         }));
+        if (s.lockIdle) {
+            TextView note = ui.label("Locks when your phone's screen timeout runs out. "
+                    + "For best results, set the phone to lock immediately after the timeout.");
+            note.setAlpha(.6f);
+            list.addView(note, Ui.matchWrap());
+        }
         list.addView(ui.label("When idle"), Ui.matchWrap());
         ui.setting(list, ui.choices("When idle", AppSettings.IDLE_MODES, s.idleMode, i -> { s.idleMode = i; s.save(); }));
         list.addView(ui.label("Idle after"), Ui.matchWrap());
@@ -129,33 +135,9 @@ final class SettingsScreen extends BaseScreen {
     }
 
     /** Coming back from Android's settings: show the new battery state. */
-    @Override void onResume() {
-        updateBattery();
-        // Came back from the device admin page without allowing it: turn the setting back off.
-        if (settings.lockIdle && !LockAdmin.isActive(app)) {
-            settings.lockIdle = false;
-            settings.save();
-            app.applyKeepOn();
-            reopen();
-        }
-    }
+    @Override void onResume() { updateBattery(); }
 
     private void reopen() { app.open(new SettingsScreen(page != null ? page.getScrollY() : 0)); }
-
-    /** Android's own page for allowing the app to lock the screen (its only device admin power). */
-    private void askForLockPermission() {
-        Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, LockAdmin.name(app))
-                .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Lets Neon Controller lock the phone when idle "
-                        + "and keep showing over the lock screen. It can only lock the screen, nothing else.");
-        try { app.startActivity(i); }
-        catch (ActivityNotFoundException e) {
-            settings.lockIdle = false;
-            settings.save();
-            app.error("This phone doesn't allow apps to lock the screen");
-            reopen();
-        }
-    }
 
     private void updateBattery() {
         if (batteryRow == null) return;

@@ -13,8 +13,9 @@ final class AppSettings {
 
     static final int IDLE_NOTHING = 0, IDLE_DIM = 1, IDLE_MINIMAL = 2, IDLE_MINIMAL_DIM = 3;
     static final String[] IDLE_MODES = {"Nothing", "Dim", "Clock & song", "Clock & song + dim"};
-    static final int[] IDLE_SECONDS = {30, 60, 120, 300};
-    static final String[] IDLE_LABELS = {"30 sec", "1 min", "2 min", "5 min"};
+    /** 0 = the phone's own screen timeout ("Screen lock time"). */
+    static final int[] IDLE_SECONDS = {30, 60, 120, 300, 0};
+    static final String[] IDLE_LABELS = {"30 sec", "1 min", "2 min", "5 min", "Screen lock time"};
 
     /** Minutes; -1 means "after the current song". */
     static final int[] SLEEP_MINUTES = {0, 15, 30, 45, 60, 90, -1};
@@ -72,7 +73,11 @@ final class AppSettings {
 
     boolean dimsWhenIdle() { return idleMode == IDLE_DIM || idleMode == IDLE_MINIMAL_DIM; }
     boolean minimalWhenIdle() { return idleMode == IDLE_MINIMAL || idleMode == IDLE_MINIMAL_DIM; }
-    long idleAfterMs() { return IDLE_SECONDS[idleChoice] * 1000L; }
+    /** @param systemTimeoutMs the phone's screen timeout, used by the "Screen lock time" choice */
+    long idleAfterMs(long systemTimeoutMs) {
+        int sec = IDLE_SECONDS[idleChoice];
+        return sec == 0 ? systemTimeoutMs : sec * 1000L;
+    }
 
     String lastDevice() { return prefs.getString("lastDevice", ""); }
 

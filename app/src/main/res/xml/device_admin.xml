@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Only "lock the screen": used by "Lock phone when idle" so the app can lock and keep showing. -->
-<device-admin>
-    <uses-policies>
-        <force-lock/>
-    </uses-policies>
-</device-admin>

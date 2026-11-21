@@ -27,10 +27,10 @@ A minimal pure-black Spotify remote for Android, built for AMOLED screens. Plain
   - **Highlight colour**: **One tone** opens a colour picker; **Gradient** opens two (start and end colour). Each picker has a colour slider and a white slider, with a preview.
   - **Show album art**.
   - **Date and time ›**: its own page with clock style (thin, regular, bold, mono), size, 12/24-hour, seconds and date.
-  - **Keep screen awake**.
+  - **Keep screen awake** (hidden while **Lock phone when idle** is on, which decides that itself).
   - **Show over lock screen**: if the app is open when the screen turns off (power button or timeout), the app is what you see when you wake the phone, instead of the lock screen. The phone stays locked: leaving the app asks for your PIN as usual. With **Keep screen awake** on, the screen never turns off, so this only matters when that's off.
-  - **Lock phone when idle, keep app on screen**: after the idle time, the app locks the phone and switches the screen straight back on, showing the app over the lock screen. The screen then stays on. Using the app doesn't need unlocking; anything else asks for your PIN. The first time, Android asks you to allow the app to lock the screen (a device admin with only that one power). Turning the setting off removes that permission, so the app can be uninstalled normally.
-  - **When idle**: nothing, dim, clock & song only, or both. In clock & song mode the clock and song drift slowly up and down the screen, which protects against burn-in. Choose an idle time of 30 s, 1, 2 or 5 min.
+  - **Lock phone when idle, keep app on screen**: the phone locks itself when its own screen timeout runs out (Settings → Display), and the app switches the screen straight back on, showing itself over the lock screen. The screen then stays on. Using the app doesn't need unlocking; anything else asks for your PIN. No special permission is needed. Pressing the power button still turns the screen off as normal. For best results, set the phone to lock immediately after the screen timeout; the app waits up to 30 seconds for the lock.
+  - **When idle**: nothing, dim, clock & song only, or both. In clock & song mode the clock and song drift slowly up and down the screen, which protects against burn-in. Choose an idle time of 30 s, 1, 2 or 5 min, or **Screen lock time** (your phone's own screen timeout).
   - **Normal and dimmed brightness** sliders. These change this app's window only, not your phone's brightness setting.
   - **Background activity**: shows whether Android limits the app in the background, and opens the app's settings so you can allow it (Battery → Unrestricted).
   - **Account**: who's connected, change the Client ID, disconnect.
