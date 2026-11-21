@@ -16,7 +16,9 @@ android {
     namespace 'com.topherdophe.neon'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.topherdophe.neon'
+        // Changed from com.topherdophe.neon in Nov 2026 (Play Protect kept flagging the old ID).
+        // The Java package / namespace stays com.topherdophe.neon.
+        applicationId 'com.topherdophe.neoncontroller'
         minSdk 26
         targetSdk 35
         versionCode buildNumber

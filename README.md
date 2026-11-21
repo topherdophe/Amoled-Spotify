@@ -54,7 +54,7 @@ Playlist editing, Liked Songs and Recently played need Spotify permissions that 
 
 ## Package name
 
-The app's package is `com.topherdophe.neon`. Builds before November 2026 used `com.example.neonspotify`, which Android treats as a different app: uninstall the old one, then enter your Client ID and log in once in the new one.
+The app's ID is `com.topherdophe.neoncontroller`. Earlier builds used `com.topherdophe.neon` (and before that `com.example.neonspotify`), which Android treats as a different app: uninstall the old one, then enter your Client ID and log in once in the new one.
 
 ## Signing (installing updates over old versions)
 
