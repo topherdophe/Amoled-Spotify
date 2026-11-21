@@ -123,7 +123,8 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         if (relit) {
             // Back on screen after "Lock phone when idle": stay in idle mode over the lock screen.
             relit = false;
-            setTurnOn(false);
+            // Cleared a moment later, once the screen is surely on.
+            handler.postDelayed(() -> setTurnOn(false), 1500);
             enterIdle();
         } else {
             exitIdle();
@@ -472,16 +473,13 @@ public class MainActivity extends Activity implements SpotifyClient.Listener, Pl
         lockWait = null;
     }
 
-    @SuppressWarnings("deprecation")
+    /**
+     * Lights the screen by bringing the app to the front with "turn screen on" set on its own window.
+     * That needs no permission (no TURN_SCREEN_ON, no waking wake lock), which Play Protect may dislike.
+     */
     private final Runnable relight = () -> {
         if (!relit || isFinishing()) return;
         setTurnOn(true);
-        PowerManager pm = getSystemService(PowerManager.class);
-        if (pm != null) {
-            PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK
-                    | PowerManager.ACQUIRE_CAUSES_WAKEUP, "neon:relight");
-            wl.acquire(4000);
-        }
         armed = true;
         bringToFront();
     };
